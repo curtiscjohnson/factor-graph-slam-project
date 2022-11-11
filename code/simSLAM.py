@@ -20,7 +20,7 @@ helpers.printDebug = False
 from helpers import debugPrint
 
 class simulation:
-    def __init__(self, numSteps=100, pauseLen=0.0, makeGif=True):
+    def __init__(self, numSteps=100, pauseLen=0.0, makeGif=True, alphas=np.array([0.05, 0.001, 0.05, 0.01])**2,betas= np.array([10, 10*np.pi/180])):
         self.numSteps = numSteps
         self.pauseLen = pauseLen
         self.makeGif = makeGif
@@ -29,13 +29,12 @@ class simulation:
         # initialize and settings
         self.initialStateMean = np.array([180., 50., 0.]) # initial state, [x, y, theta]
         maxObs = 3 # The maximum number of features that will be observed at any timestep
-        alphas = np.array([0.05, 0.001, 0.05, 0.01])**2 # These have to do with the error in our motion controls
-        betas = np.array([10, 10*np.pi/180]) # Error in observations
-        R = np.diag(betas**2)
+        # alphas = np.array([0.05, 0.001, 0.05, 0.01])**2 # These have to do with the error in our motion controls
+        # betas = np.array([10, 10*np.pi/180]) # Error in observations
         deltaT = 0.1 # Time between each timestep, must be < 1.0s
         
         # NOTE: The below will pull a previously-generated dataset if one exists for the format you've selected.  If this is undesireable, call with "forceNew=True"
-        self.data = generate(self.initialStateMean, numSteps, alphas, betas, deltaT, maxObs, forceNew=False) # there are other options in this function def for what landmarks are observed, we won't mess with them
+        self.data = generate(self.initialStateMean, numSteps, alphas, betas, deltaT, maxObs, forceNew=True) # there are other options in this function def for what landmarks are observed, we won't mess with them
 
 
         self.muHist = np.zeros((numSteps, 2)) # Tracking the position of the robot over time for plotting
@@ -43,6 +42,9 @@ class simulation:
 
         plt.ion() # Interacting plotting so we can SEE it doing its thing
         self.gifFrames = []
+
+    def get_initialStateMean(self):
+        return self.initialStateMean
 
 
     def step(self, realRobot=np.array([180., 50., 0.]),realCov= 1e-03*np.eye(3)):
@@ -173,3 +175,222 @@ class simulation:
         for i in range(int((len(mu) - 3)/2)):
             # We'll also plot a covariance ellipse for each landmark
             helpers.plotCov2D(mu[3+i*2:3+i*2+2], Sigma[3+i*2:3+i*2+2, 3+i*2:3+i*2+2], nSigma=3)
+
+class ekf_slam:
+    def __init__(self,initialSateMean,realCov,alphas,betas, updateMethod='batch'):
+        self.R = np.diag(betas**2)
+        self.alphas = alphas
+        self.realRobot = initialSateMean
+        self.realCov = realCov
+        self.landmarkSignatures = []
+        self.updateMethod = updateMethod
+
+
+    def step(self, u, z):    
+        drot1, dtrans, drot2 = u
+        alphas = self.alphas
+        R = self.R
+        # Setup to Handle Noisy Controls
+        M = np.array([[alphas[0]*drot1**2+alphas[1]*dtrans**2,0                                                   ,0                                       ],
+                      [0                                     ,alphas[2]*dtrans**2 + alphas[3]*(drot1**2+drot2**2) ,0                                       ],
+                      [0                                     ,0                                                   ,alphas[0]*drot2**2 + alphas[1]*dtrans**2]])
+        # Implement the predict function defined below
+        realRobot_bar, realCov_bar = self.predict(self.realRobot, self.realCov, u, M)
+        if (len(z) > 0): # If we HAVE any measurements...
+            # Call the associateData function to determine which measurements correspond to which landmarks
+            association, H, innovation = self.associateData(z, self.R, realRobot_bar, realCov_bar, self.landmarkSignatures) 
+            # Update your state for landmarks already observed
+            self.realRobot, self.realCov = self.update(realRobot_bar, realCov_bar, association, H, R, innovation, self.updateMethod) 
+            # Augment our state with new landmarks that were not associated
+            self.realRobot, self.realCov, self.landmarkSignatures = self.augmentState(association, z, self.realRobot, self.realCov, R, self.landmarkSignatures)
+        return self.realRobot, self.realCov
+            
+
+    ##################################################
+    # Implement the Motion Prediction Equations
+    ##################################################
+    def motion_model(self,u, mu):
+        x,y,theta = mu.flatten()
+        dr1, dt, dr2 = u.flatten()
+
+        # predicting motion
+        theta = theta + dr1
+        x = x + dt*np.cos(theta)
+        y = y + dt*np.sin(theta)
+
+        G = np.array([[1,0,-dt*np.sin(theta)],
+                    [0,1, dt*np.cos(theta)],
+                    [0,0,                1]])
+        R = np.array([[-dt*np.sin(theta), np.cos(theta), 0],
+                    [ dt*np.cos(theta), np.sin(theta), 0],
+                    [1                      ,0       , 1]])
+
+        theta_end = theta + dr2
+        # theta_end = helpers.minimizedAngle(theta_end) 
+        if theta_end == 1:
+            theta_end == 0
+            
+        return np.array([x, y, theta_end]), G, R
+    def predict(self, mu, Sigma, u, M):
+        N = int((len(mu)-3)/2)
+        # Propogate Jacobian 
+
+        # Find Jacobians
+
+        # Update Mean and Covariance (Handle both Robot State and Landmarks)
+        # F = np.hstack([np.eye(3),np.zeros(3,num_landmarks)])
+        mu[:3], G, R = self.motion_model(u,mu[:3]) 
+        mu_bar = mu
+        # G = helpers.block_diag(G,np.eye(num_landmarks*2)) # Inefficient
+        F = np.hstack([np.eye(3),np.zeros([3,N*2])])
+        G_high = helpers.block_diag(G,np.eye(N*2)) # Inefficient
+        Sigma_bar = G_high@Sigma@G_high.T  + F.T@(R @ M @ R.T)@F
+            
+        
+        return mu_bar, Sigma_bar # And give them back to the calling function
+
+    ###############################################
+    # TODO: Implement Measurement Update Equations
+    ###############################################
+    def update(self, mu_bar, Sigma_bar, association, H, Q, innovation, updateMethod):
+        ind = np.flatnonzero(np.asarray(association > -1)) # -1 is used as a keyword for "new landmark," -2 is used for "ignore"
+        N = mu_bar
+        if (len(ind) == 0): # If we don't have any, short-circuit return
+            return mu_bar, Sigma_bar
+
+        if (updateMethod == "seq"): #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! untested step through needed
+            for i in ind: 
+                # TODO: Finish This to update incrementally for each measurement
+                # Kalman gain
+                S = H[i]@Sigma_bar@H[i].T + Q
+                K = (Sigma_bar@H[i].T@ np.linalg.inv(S))
+                # Correction
+                mu_bar = mu_bar + K@(innovation[i])
+                Sigma_bar = (np.eye(len(mu_bar))-K@H[i])@Sigma_bar
+                pass # To enable running until implemented
+        elif (updateMethod == "batch"): 
+            # TODO: Finish This to update all measurements of a time step at once
+            H = np.vstack([H[i] for i in ind]) 
+            innovation = np.vstack([innovation[i] for i in ind])
+            Q_stack = helpers.block_diag(*[Q]*len(ind) )
+            # Kalman gain
+            S = H@Sigma_bar@H.T + Q_stack 
+            K = (Sigma_bar@H.T@ np.linalg.inv(S))
+            # Correction
+            mu_bar = mu_bar + K@(innovation.flatten())
+            Sigma_bar = (np.eye(len(mu_bar))-K@H)@Sigma_bar
+            pass # To enable running until implemented        
+        else:
+            raise Exception("Unknown update method, '" + updateMethod + "' - it must be 'seq' or 'batch'")
+        
+        return mu_bar, Sigma_bar
+
+    ##################################
+    # Implement Augment State
+    ##################################
+    def augmentState(self, association, measurements, mu, Sigma, Q, landmarkSignatures):
+        indices = np.flatnonzero(np.asarray(association == -1)) # If our data association returned a "-1" for a measurement, it's a landmark to add to the state
+        measurements = measurements[indices] # We want to filter out only the measurements we cared about
+        x, y, theta = mu[:3] # We'll need the robot state
+        Sigma_rr = Sigma[:3, :3] # And the main robot covariance, we won't change
+        
+        # For each measurement of a new landmark update your state
+        for z in measurements:
+            # Extract info for the measurement
+            dist, bearing, sig = z 
+            # Update the signatures so we know what landmark index goes to what signature.  Only used for da_known g(mu, z) gives landmark pose
+            landmarkSignatures = np.array([*landmarkSignatures, sig])  # use for da_known
+            # observed location of a landmark
+            landmark_xy =  [x+dist*np.cos(bearing+theta),y+dist*np.sin(bearing+theta)]
+
+            # G = np.asarray([[1,0,dist*np.cos(bearing+theta), np.cos(bearing+theta), dist*np.cos(bearing+theta)],
+            #                 [0,1,dist*np.cos(bearing+theta), np.cos(bearing+theta), dist*np.cos(bearing+theta)]]) 
+            Gz = np.asarray([[ np.cos(bearing+theta), -dist*np.sin(bearing+theta)],
+                            [ np.sin(bearing+theta), dist*np.cos(bearing+theta)]]) 
+            Gr = np.asarray([[1,0,-dist*np.sin(bearing+theta)],
+                            [0,1,dist*np.cos(bearing+theta)]]) 
+            dim = len(Sigma)
+            Sigma_LL = Sigma[3:dim, 3:dim]
+            Sigma_rL = Sigma[:3, 3:dim]
+            Sigma_Lr = Sigma_rL.T
+            mu = np.hstack([mu,landmark_xy])
+            # Update both the mean (mu_l) and covariance (Sigma_lr, Sigma_rl, Sigma_Ll, Sigma_lL, Sigma_ll) for the new landmark.
+
+            if Sigma_rL.size > 0:
+                Sigma_lr = Gr @ Sigma_rr
+                Sigma_rl = Sigma_lr.T
+                Sigma_lL = Gr @ Sigma_rL
+                Sigma_Ll = Sigma_lL.T
+                Sigma_ll = Gr @ Sigma_rr @ Gr.T + Gz@Q@Gz.T # comes from measurement noise Q jacobian of g(mu,z) with respect to mu and z (2,3)
+                Sigma = np.block([[Sigma_rr, Sigma_rL, Sigma_rl],
+                                [Sigma_Lr, Sigma_LL, Sigma_Ll],
+                                [Sigma_lr, Sigma_lL, Sigma_ll]])
+            else:
+                Sigma_lr = Gr @ Sigma_rr
+                Sigma_rl = Sigma_lr.T
+                Sigma_ll = Gr @ Sigma_rr @ Gr.T + Gz@Q@Gz.T 
+                Sigma = np.block([[Sigma_rr, Sigma_rl],
+                                [Sigma_lr, Sigma_ll]])
+            
+        
+        return mu, Sigma, landmarkSignatures
+
+    ####################################
+    # Implement Data Association
+    ####################################
+    # Output:
+    #  - an "association" vector that specifies the landmark index of each measurement. (-1 means new landmark, -2 means ignore)
+    #  - Since MOST data associations (NN, JCBB) end up computing innovation and measurement jacobians,
+    #    it can save computation to pass them on from this function. 
+    #
+    # Inputs:
+    #  - measurements obtained at this time step
+    #  - R covariance matrix
+    #  - Current state estimate (mu, Sigma)Sigma_Lr
+    #  - Landmark signatures (only available for use in da_known)
+    #  - Short circuit threshhold may be helpful for use in jcbb, not needed in the other algorithms
+        # Short circuit threshhold is used in jcbb, not implemented here
+    def associateData(self, measurements, R, mu, Sigma, landmarkSignatures = [], shortCircuitThresh = 40.0**2):
+        association = [] # Each index of this will hold the index of the landmark in the state.
+        innovation = [] # Indexed the same as the above, this is used in the update step
+        H = [] # Indexed the same as the above, this is used in the update step
+        
+        x, y, theta = mu[:3] # We'll use this for innovation and H, even if not for data association.
+
+        for z in measurements: # OK, for each measurement we have...
+            dist, bearing, sig = z # Let's extract the components
+            if sig in landmarkSignatures: # If we've seen this signature (markerID) before, it's in the state
+
+                # Association
+                ind = np.flatnonzero(np.asarray(landmarkSignatures == sig))[0] # We just need to find WHERE in the state
+                association.append(ind) # And make sure we return that
+
+                # Innovation
+                # TODO: Calculate the Innovation (difference between expected and actual measurement) HERE
+                marker_x = mu[ind*2+3]
+                marker_y = mu[ind*2+4]
+                mu_bar_x, mu_bar_y, mu_bar_t = mu[:3].flatten()
+                dx = marker_x-mu_bar_x
+                dy = marker_y-mu_bar_y
+                q = (dx)**2 + (dy)**2
+                z_hat = np.asarray([[np.sqrt(q)],[helpers.minimizedAngle(np.arctan2(dy, dx)-mu_bar_t)]]).reshape(2,)
+                innovation.append(z[:2]-z_hat)
+
+                # Calculate the Jacobian HERE
+                F = np.zeros([5,len(mu)])
+                F[:3,:3] = np.eye(3)
+                F[3:,ind*2+3:ind*2+5] = np.eye(2)
+
+                H.append((1/q)*np.asarray([[-1*np.sqrt(q)*dx, -1*np.sqrt(q)*dy,  0, np.sqrt(q)*dx, np.sqrt(q)*dy],
+                                        [dy              , -dx             , -q, -dy          , dx           ]])@F)
+
+
+
+            # TODO: Read this so you understand what its doing
+            else: # If the landmark signature (markerID) HASN'T been seen yet, we need to create a new landmark
+                association.append(-1) # We say the association is "-1" to tell future code to add new landmarks
+                innovation.append([0, 0]) # We won't use the innovation anyway, but we need to return SOMETHING
+                H.append(np.zeros((2, len(mu)))) # Same for our H jacobian
+
+        return np.array(association), np.array(H), np.array(innovation)
+            
