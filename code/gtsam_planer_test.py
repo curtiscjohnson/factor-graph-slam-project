@@ -7,7 +7,7 @@ Authors: Frank Dellaert, et al. (see THANKS for the full author list)
 See LICENSE for the license information
 
 Simple robotics example using odometry measurements and bearing-range (laser) measurements
-Author: Alex Cunningham (C++), Kevin Deng & Frank Dellaert (Python)
+Author: Alex Cunningham (C++), Kevin Deng & Frank Dellaert (Python) kody
 """
 # pylint: disable=invalid-name, E1101
 
