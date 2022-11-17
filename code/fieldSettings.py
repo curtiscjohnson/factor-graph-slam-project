@@ -19,7 +19,7 @@ __maintainer__ = "Joshua Mangelson"
 def settings():
     fieldSettings = {}
 
-    numMarkersX = 8
+    numMarkersX = 3
     numMarkersY = 2
 
     innerSizeX = 420

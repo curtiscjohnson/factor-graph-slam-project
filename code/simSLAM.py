@@ -28,7 +28,7 @@ class simulation:
 
         # initialize and settings
         self.initialStateMean = np.array([180., 50., 0.]) # initial state, [x, y, theta]
-        maxObs = 3 # The maximum number of features that will be observed at any timestep
+        maxObs = 2 # The maximum number of features that will be observed at any timestep
         # alphas = np.array([0.05, 0.001, 0.05, 0.01])**2 # These have to do with the error in our motion controls
         # betas = np.array([10, 10*np.pi/180]) # Error in observations
         deltaT = 0.1 # Time between each timestep, must be < 1.0s
@@ -393,4 +393,18 @@ class ekf_slam:
                 H.append(np.zeros((2, len(mu)))) # Same for our H jacobian
 
         return np.array(association), np.array(H), np.array(innovation)
-            
+
+class graph_slam_known:
+    def __init__(self) -> None:
+        pass
+
+    def step():
+        converged = False
+        while(not converged):
+            omega, zeta = gslam_inearize(u_1t, z_1t, c_1t, mu_0t)
+            omega_bar, zeta_bar = gslam_reduce(omega,zeta)
+            mu, Sigma_0t = gslam_solve(omega_bar, zeta_bar, omega,zeta)
+
+
+
+

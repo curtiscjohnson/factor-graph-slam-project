@@ -13,7 +13,6 @@ def run():
     soccer_bot = simulation(numSteps=numSteps,alphas=alphas,betas=betas)
 
     mu = soccer_bot.get_initialStateMean()
-    print(mu)
     cov= 1e-03*np.eye(3) # start covariance low but non-zero
     SLAM_alg = ekf_slam(mu,cov,alphas=alphas,betas=betas)
 
@@ -28,7 +27,7 @@ def run():
         # print("measurement:\n", z)
         mu,cov = SLAM_alg.step(u,z)
         # print("mean\n", mu)
-        print("covariance:\n", cov)
+        # print("covariance:\n", cov)
 
 
 
