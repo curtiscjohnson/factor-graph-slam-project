@@ -4,6 +4,13 @@ import time
 from fieldSettings import field
 import helpers
 
+import math
+import gtsam
+from gtsam import Point2, Pose2
+import gtsam.utils.plot as gtsam_plot
+from numpy.random import default_rng
+
+
 
 np.set_printoptions(linewidth=256)
 import matplotlib
@@ -395,15 +402,129 @@ class ekf_slam:
         return np.array(association), np.array(H), np.array(innovation)
 
 class graph_slam_known:
-    def __init__(self) -> None:
-        pass
+    def __init__(self,initialSateMean,realCov,alphas,betas, relinearizeThreshold=0.1):
+        rng = default_rng()
+        
+        # parameters
+        minK = 150  # minimum number of range measurements to process initially
+        incK = 25  # minimum number of range measurements to process after
+        robust = True
+        
+        
+        # Set Noise parameters
+        priorSigmas = gtsam.Point3(1, 1, math.pi) # !!! These may be replaced by alpha and beta
+        odoSigmas = gtsam.Point3(0.05, 0.01, 0.1) # !!!These may be replaced by alpha and beta
+        sigmaR = 100        # range standard deviation
 
-    def step():
-        converged = False
-        while(not converged):
-            omega, zeta = gslam_inearize(u_1t, z_1t, c_1t, mu_0t)
-            omega_bar, zeta_bar = gslam_reduce(omega,zeta)
-            mu, Sigma_0t = gslam_solve(omega_bar, zeta_bar, omega,zeta)
+        NM = gtsam.noiseModel
+        priorNoise = NM.Diagonal.Sigmas(priorSigmas)  # prior
+        looseNoise = NM.Isotropic.Sigma(2, 1000)     # loose LM prior
+        odoNoise = NM.Diagonal.Sigmas(odoSigmas)     # odometry
+        gaussian = NM.Isotropic.Sigma(1, sigmaR)     # non-robust
+        tukey = NM.Robust.Create(NM.mEstimator.Tukey.Create(15), gaussian)  # robust
+        rangeNoise = tukey if robust else gaussian
+
+        # Initialize iSAM
+        isam = gtsam.ISAM2()
+
+        # Add prior on first pose
+        pose0 = Pose2(initialSateMean[0], initialSateMean[1],initialSateMean[2])
+        newFactors = gtsam.NonlinearFactorGraph()
+        newFactors.addPriorPose2(0, pose0, priorNoise)
+        self.initial_estimate = gtsam.Values()
+        self.initial_estimate.insert(0, pose0)
+
+        # set some loop variables
+        self.i = 1  # step counter
+        self.k = 0  # range measurement counter
+        self.initialized = False
+        self.lastPose = pose0
+        self.countK = 0
+
+        self.initializedLandmarks = set()
+
+
+    def step(self, t, relative_pose):
+        i = self.i
+        # # set some loop variables
+        # k = self.k  # range measurement counter
+        # initialized = self.initialized
+        # lastPose = self.lastPose
+        # countK = self.countK
+
+        # add odometry factor
+        newFactors.add(gtsam.BetweenFactorPose2(i - 1, i, relative_pose, odoNoise))
+
+        # predict pose and add as initial estimate
+        predictedPose = lastPose.compose(relative_pose)
+        lastPose = predictedPose
+        initial.insert(i, predictedPose)
+
+        # Check if there are range factors to be added
+        while (k < K) and (triples[k][0] <= t):
+            j = triples[k][1]
+            landmark_key = gtsam.symbol('L', j)
+            _range = triples[k][2]
+            newFactors.add(gtsam.RangeFactor2D(
+                i, landmark_key, _range, rangeNoise))
+            if landmark_key not in self.initializedLandmarks:
+                p = self.rng.normal(loc=0, scale=100, size=(2,))
+                initial.insert(landmark_key, p)
+                print(f"Adding landmark L{j}")
+                self.initializedLandmarks.add(landmark_key)
+                # We also add a very loose prior on the landmark in case there is only
+                # one sighting, which cannot fully determine the landmark.
+                newFactors.add(gtsam.PriorFactorPoint2(
+                    landmark_key, Point2(0, 0), looseNoise))
+            k = k + 1
+            self.countK = countK + 1
+
+        # Check whether to update iSAM 2
+        if (k > self.minK) and (countK > self.incK):
+            if not initialized:  # Do a full optimize for first minK ranges
+                print(f"Initializing at time {k}")
+                batchOptimizer = gtsam.LevenbergMarquardtOptimizer(
+                    newFactors, initial)
+                initial = batchOptimizer.optimize()
+                initialized = True
+
+            self.isam.update(newFactors, initial)
+            result = self.isam.calculateEstimate()
+            lastPose = result.atPose2(i)
+            newFactors = gtsam.NonlinearFactorGraph()
+            initial = gtsam.Values()
+            self.countK = 0
+        self.i = self.i + 1
+
+
+    def determine_loop_closure(self, odom: np.ndarray, current_estimate: gtsam.Values, key: int, xy_tol=0.6, theta_tol=17) -> int:
+        """Simple brute force approach which iterates through previous states
+        and checks for loop closure.
+
+        Args:
+            odom: Vector representing noisy odometry (x, y, theta) measurement in the body frame.
+            current_estimate: The current estimates computed by iSAM2.
+            key: Key corresponding to the current state estimate of the robot.
+            xy_tol: Optional argument for the x-y measurement tolerance, in meters.
+            theta_tol: Optional argument for the theta measurement tolerance, in degrees.
+        Returns:
+            k: The key of the state which is helping add the loop closure constraint.
+                If loop closure is not found, then None is returned.
+        """
+        if current_estimate:
+            prev_est = current_estimate.atPose2(key+1)
+            rotated_odom = prev_est.rotation().matrix() @ odom[:2]
+            curr_xy = np.array([prev_est.x() + rotated_odom[0],
+                                prev_est.y() + rotated_odom[1]])
+            curr_theta = prev_est.theta() + odom[2]
+            for k in range(1, key+1):
+                pose_xy = np.array([current_estimate.atPose2(k).x(),
+                                    current_estimate.atPose2(k).y()])
+                pose_theta = current_estimate.atPose2(k).theta()
+                if (abs(pose_xy - curr_xy) <= xy_tol).all() and \
+                    (abs(pose_theta - curr_theta) <= theta_tol*np.pi/180):
+                        return k
+
 
 
 
