@@ -402,12 +402,12 @@ class ekf_slam:
         return np.array(association), np.array(H), np.array(innovation)
 
 class graph_slam_known:
-    def __init__(self,initialSateMean,realCov,alphas,betas, relinearizeThreshold=0.1):
-        rng = default_rng()
+    def __init__(self,initialSateMean, relinearizeThreshold=0.1):
+        self.rng = default_rng()
         
         # parameters
-        minK = 150  # minimum number of range measurements to process initially
-        incK = 25  # minimum number of range measurements to process after
+        self.minK = 50  # minimum number of range measurements to process initially
+        self.incK = 15  # minimum number of range measurements to process after
         robust = True
         
         
@@ -418,19 +418,20 @@ class graph_slam_known:
 
         NM = gtsam.noiseModel
         priorNoise = NM.Diagonal.Sigmas(priorSigmas)  # prior
-        looseNoise = NM.Isotropic.Sigma(2, 1000)     # loose LM prior
-        odoNoise = NM.Diagonal.Sigmas(odoSigmas)     # odometry
+        self.looseNoise = NM.Isotropic.Sigma(2, 1000)     # loose LM prior
+        self.odoNoise = NM.Diagonal.Sigmas(odoSigmas)     # odometry
         gaussian = NM.Isotropic.Sigma(1, sigmaR)     # non-robust
         tukey = NM.Robust.Create(NM.mEstimator.Tukey.Create(15), gaussian)  # robust
-        rangeNoise = tukey if robust else gaussian
+        self.rangeNoise = tukey if robust else gaussian
+        self.MEASUREMENT_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1, 0.2]))
 
         # Initialize iSAM
-        isam = gtsam.ISAM2()
+        self.isam = gtsam.ISAM2()
 
         # Add prior on first pose
         pose0 = Pose2(initialSateMean[0], initialSateMean[1],initialSateMean[2])
-        newFactors = gtsam.NonlinearFactorGraph()
-        newFactors.addPriorPose2(0, pose0, priorNoise)
+        self.newFactors = gtsam.NonlinearFactorGraph()
+        self.newFactors.addPriorPose2(0, pose0, priorNoise)
         self.initial_estimate = gtsam.Values()
         self.initial_estimate.insert(0, pose0)
 
@@ -444,54 +445,55 @@ class graph_slam_known:
         self.initializedLandmarks = set()
 
 
-    def step(self, t, relative_pose):
-        i = self.i
-        # # set some loop variables
-        # k = self.k  # range measurement counter
+    def step(self, odometry, measurements):
+        # set some loop variables
+        i = self.i # step counter
+        k = self.k  # range measurement counter
         # initialized = self.initialized
-        # lastPose = self.lastPose
-        # countK = self.countK
+        lastPose = self.lastPose
+        countK = self.countK
+        relativePose = gtsam.Pose2(odometry)
 
         # add odometry factor
-        newFactors.add(gtsam.BetweenFactorPose2(i - 1, i, relative_pose, odoNoise))
+        self.newFactors.add(gtsam.BetweenFactorPose2(i - 1, i, relativePose, self.odoNoise))
 
         # predict pose and add as initial estimate
-        predictedPose = lastPose.compose(relative_pose)
+        predictedPose = lastPose.compose(relativePose)
         lastPose = predictedPose
-        initial.insert(i, predictedPose)
+        self.initial_estimate.insert(i, predictedPose)
 
         # Check if there are range factors to be added
-        while (k < K) and (triples[k][0] <= t):
-            j = triples[k][1]
-            landmark_key = gtsam.symbol('L', j)
-            _range = triples[k][2]
-            newFactors.add(gtsam.RangeFactor2D(
-                i, landmark_key, _range, rangeNoise))
-            if landmark_key not in self.initializedLandmarks:
-                p = self.rng.normal(loc=0, scale=100, size=(2,))
-                initial.insert(landmark_key, p)
-                print(f"Adding landmark L{j}")
-                self.initializedLandmarks.add(landmark_key)
-                # We also add a very loose prior on the landmark in case there is only
-                # one sighting, which cannot fully determine the landmark.
-                newFactors.add(gtsam.PriorFactorPoint2(
-                    landmark_key, Point2(0, 0), looseNoise))
-            k = k + 1
-            self.countK = countK + 1
+        if (len(measurements) > 0):
+            for z in measurements:
+                dist, bearing, sig = z
+                j = sig
+                landmark_key = gtsam.symbol('L',int(j))
+                pose_key = gtsam.symbol('X',self.i)
+                _range = dist
+                self.newFactors.add(gtsam.BearingRangeFactor2D(i, landmark_key, gtsam.Rot2(bearing),  dist, self.MEASUREMENT_NOISE))
+                if landmark_key not in self.initializedLandmarks:
+                    p = self.rng.normal(loc=0, scale=100, size=(2,))
+                    self.initial_estimate.insert(landmark_key, p)
+                    print(f"Adding landmark L{j}")
+                    self.initializedLandmarks.add(landmark_key)
+                    # We also add a very loose prior on the landmark in case there is only
+                    # one sighting, which cannot fully determine the landmark.
+                    self.newFactors.add(gtsam.PriorFactorPoint2(landmark_key, Point2(0, 0), self.looseNoise))
+                k = k + 1
+                self.countK = countK + 1
 
         # Check whether to update iSAM 2
         if (k > self.minK) and (countK > self.incK):
-            if not initialized:  # Do a full optimize for first minK ranges
+            if not self.initialized:  # Do a full optimize for first minK ranges
                 print(f"Initializing at time {k}")
-                batchOptimizer = gtsam.LevenbergMarquardtOptimizer(
-                    newFactors, initial)
+                batchOptimizer = gtsam.LevenbergMarquardtOptimizer(self.newFactors, initial)
                 initial = batchOptimizer.optimize()
-                initialized = True
+                self.initialized = True
 
-            self.isam.update(newFactors, initial)
+            self.isam.update(self.newFactors, initial)
             result = self.isam.calculateEstimate()
             lastPose = result.atPose2(i)
-            newFactors = gtsam.NonlinearFactorGraph()
+            self.newFactors = gtsam.NonlinearFactorGraph()
             initial = gtsam.Values()
             self.countK = 0
         self.i = self.i + 1

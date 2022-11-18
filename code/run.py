@@ -3,6 +3,7 @@ import numpy as np
 import argparse
 from simSLAM import simulation
 from simSLAM import ekf_slam
+from simSLAM import graph_slam_known
 
 def run():
 
@@ -16,6 +17,8 @@ def run():
     cov= 1e-03*np.eye(3) # start covariance low but non-zero
     SLAM_alg = ekf_slam(mu,cov,alphas=alphas,betas=betas)
 
+    graph_alg = graph_slam_known(mu)
+
     #=================================================
     # Parameters: 
     # realRobot the mean estimated position of the robot [x,y,theta]
@@ -28,6 +31,7 @@ def run():
         mu,cov = SLAM_alg.step(u,z)
         # print("mean\n", mu)
         # print("covariance:\n", cov)
+        graph_alg.step(u,z)
 
 
 
