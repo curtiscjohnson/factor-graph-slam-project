@@ -2,6 +2,9 @@ import numpy as np
 import gtsam
 import time
 import matplotlib.pyplot as plt
+import helpers
+from PIL import Image
+
 
 class graph_slam_known:
     def __init__(self, initialMean, alphas, betas, robust=True):
@@ -65,8 +68,6 @@ class graph_slam_known:
             for z in measurements:
                 id, dist, bearing = z
                 landmark_key = gtsam.symbol('L',int(id))
-                pose_key = gtsam.symbol('X',self.i)
-                _range = dist
                 self.newFactors.add(gtsam.BearingRangeFactor2D(i, landmark_key, gtsam.Rot2(bearing),  dist, self.MEASUREMENT_NOISE))
                 if landmark_key not in self.initializedLandmarks:
                     p = self.rng.normal(loc=0, scale=100, size=(2,))
@@ -93,7 +94,11 @@ class graph_slam_known:
             self.newFactors = gtsam.NonlinearFactorGraph()
             initial = gtsam.Values()
             self.countK = 0
+        
+        result = self.isam.calculateEstimate()
+
         self.i = self.i + 1
+
 
 
     def determine_loop_closure(self, odom: np.ndarray, current_estimate: gtsam.Values, key: int, xy_tol=0.6, theta_tol=17) -> int:
@@ -127,97 +132,54 @@ class graph_slam_known:
 
 class hw_plot:
     def __init__(self, pauseLen=0.01, makeGif=False):
-        self.mu_history = []
-        self.cov_history = []
-
+        self.robot_path = []
         self.pauseLen = pauseLen
         self.makeGif = makeGif
-
         plt.ion()
+        self.gifFrames = []
 
     def plot_step(self, mu, cov):
-        self.mu_history.append(mu)
-        self.cov_history.append(cov)
+        self.robot_path.append(mu[:2])
 
-
-        noiseFreePathColor = '#00FF00'
-        noisyPathColor = '#0000FF'
-        estimatedPathColor = '#FFBB00'
-
-        noiseFreeBearingColor = '#00FFFF'
-        observedBearingColor = '#FF0000'
-            
-        #=================================================
-        # data *not* available to your filter, i.e., known
-        # only by the simulator, useful for making error plots
-        #=================================================
-        # actual position (i.e., ground truth)
-        x, y, theta = data[t, 3:6]
-        
-        # real observation
-        z = data[t, 9:] # [id or -1 if no obs, noisy dist, noisy theta, noise-free dist, noise-free theta, repeat....]
-        obs = [] # We need to gather together the observations that are non-null
-        for i in range(int(len(z)/5)):
-            if (not (z[i*5] == -1)):
-                obs.append(z[i*5:i*5+5])
-        obs = np.array(obs)
-
-        #################################################
-        # Graphics
-        #################################################
-        plt.clf() # clear the frame.
-        helpers.plotField(obs[:,0]) # Plot the field with the observed landmarks highlighted
-
-        # draw actual path and path that would result if there was no noise in
-        # executing the motion command
-        plt.plot(np.array([initialStateMean[0], *data[:t, 6]]), np.array([initialStateMean[1], *data[:t, 7]]), color=noiseFreePathColor, label='Noise Free Path')
-        plt.plot(data[t, 6], data[t, 7], '*', color=noiseFreePathColor)
-
-        # draw the path that has resulted from the movement with noise
-        plt.plot(np.array([initialStateMean[0], *data[:t, 3]]), np.array([initialStateMean[1], *data[:t, 4]]), color=noisyPathColor, label='True Noisy Path')
-        helpers.plotRobot(data[t, 3:6], "black", "#00FFFF40")
-
-        # draw the path the estimated robot followed
-        plt.plot(np.array([initialStateMean[0], *muHist[:t, 0]]), np.array([initialStateMean[1], *muHist[:t, 1]]), color=estimatedPathColor, label='EKF SLAM Est')
-        plt.plot([mu[0]], [mu[1]], '*', color=estimatedPathColor)
-        helpers.plotCov2D(mu[:2], Sigma[:2, :2], color=estimatedPathColor, nSigma=3)
-
-        for observation in obs:
-            # indicate observed angle relative to actual position
-            plt.plot(np.array([x, x+np.cos(theta + observation[2])*observation[1]]), np.array([y, y+np.sin(theta + observation[2])*observation[1]]), color=observedBearingColor)
-
-            # indicate ideal noise-free angle relative to actual position
-            plt.plot(np.array([x, x+np.cos(theta + observation[4])*observation[3]]), np.array([y, y+np.sin(theta + observation[4])*observation[3]]), color=noiseFreeBearingColor)
-        
-        for i in range(int((len(mu) - 3)/2)):
-            # We'll also plot a covariance ellipse for each landmark
-            helpers.plotCov2D(mu[3+i*2:3+i*2+2], Sigma[3+i*2:3+i*2+2, 3+i*2:3+i*2+2], nSigma=3)
-
-
-
-
-        plt.legend()        
-        plt.gcf().canvas.draw() # Tell the canvas to draw, interactive mode is weird
-        if self.pauseLen > 0: # If we've got a pauselen, let's take a break so it doesn't blur past
-            time.sleep(self.pauseLen)
-
-        # Save GIF Data
-        if (self.makeGif): # If we're saving to make a video, let's put the current frame into a saved image for later processing.
-            # Video/GIF generation
-            from PIL import Image # we need PIL to do so
+        self.graphics(mu, cov, self.robot_path, boundingBox=np.array([-100, 200, -50, 200])) # Handle any graphics (keep minimal for speed, 7249 timesteps in the whole dataset)
+        plt.gcf().canvas.draw() # interactive plotting is weird, but force it to execute here
+        if self.pauseLen > 0: # If we have a pauselen (don't recommend)
+            time.sleep(self.pauseLen) # we'll pause here so the frames don't blur by too fast (NOT LIKELY)
+        if (self.makeGif):
             imgData = np.frombuffer(plt.gcf().canvas.tostring_rgb(), dtype=np.uint8)
             w, h = plt.gcf().canvas.get_width_height()
-            mod = np.sqrt(
-                imgData.shape[0] / (3 * w * h)
-            )  # multi-sampling of pixels on high-res displays does weird things.
-            im = imgData.reshape((int(h * mod), int(w * mod), -1))
+            mod = np.sqrt(imgData.shape[0]/(3*w*h)) # multi-sampling of pixels on high-res displays does weird things.
+            im = imgData.reshape((int(h*mod), int(w*mod), -1))
             self.gifFrames.append(Image.fromarray(im))
 
-        # Make sure the canvas is ready to go for the next step
-        plt.gcf().canvas.flush_events() 
+        plt.gcf().canvas.flush_events() # Make sure the canvas is ready to go for the next step
 
+    def graphics(self, mu, Sigma, robotPath, boundingBox=None):
+        plt.clf() # clear the frame.
+        # restrict view to a bounding box around the current pose
+        if boundingBox is not None:
+            boundingBox = np.array([boundingBox])
+            boundingBox = boundingBox.reshape(-1)
+            if (len(boundingBox) == 1):
+                plt.axis([*([-boundingBox,boundingBox]+mu[0]), *([-boundingBox,boundingBox]+mu[1])])
+            else:
+                plt.axis(boundingBox)
+        plt.gca().set_aspect('equal', adjustable='box') # Make sure the aspect ratio in the plot is 1:1
+        
+        estimatedPathColor = '#FFBB00'
+    
+        # plot the robot's 3-sigma covariance ellipsoid and path
+        plt.plot(*robotPath, color=estimatedPathColor)
+        helpers.plotCov2D(mu[:2], Sigma[:2, :2], color=estimatedPathColor, nSigma=3)
 
+        for i in range(int((len(mu) - 3)/2)):
+            # Plot a covariance ellipse for every landmark, too
+            helpers.plotCov2D(mu[3+i*2:3+i*2+2], Sigma[3+i*2:3+i*2+2, 3+i*2:3+i*2+2], nSigma=3)
+            # and an indicator 'cause those ellipses get SMALL (especially w.r.t. the size of the area we're mapping)
+            plt.plot(*mu[3+i*2:3+i*2+2], "*", color="green")
 
+        # plot the robot (so it's on top))
+        helpers.plotRobot(mu[:3], "black", estimatedPathColor, r=0.5) # this is, uh... not what the vehicle really looks like.  But I'm lazy.
 
 
 def parseText(line: str):
@@ -247,7 +209,7 @@ def parseText(line: str):
         return output
 
 def get_measurements():
-    with open("code/measurement_data.txt") as f:
+    with open("measurement_data.txt") as f:
         m_txt = f.readlines()
         # remove new line characters
         m_txt = [x.strip() for x in m_txt]

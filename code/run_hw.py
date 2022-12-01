@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import numpy as np
 from simSLAM import simulation
-from hwSLAM import graph_slam_known, get_measurements
+from hwSLAM import graph_slam_known, get_measurements, hw_plot
 
 def run():
     """" 
@@ -19,7 +19,7 @@ def run():
     betas = np.array([0.05, 0.01, 0.1]) # Error in observations
 
                 # np.array([t, x, y, theta])
-    hw_odometry = np.load("code/velocity_odometry_data.npy")
+    hw_odometry = np.load("velocity_odometry_data.npy")
 
     hw_measurements = get_measurements()
 
@@ -27,6 +27,7 @@ def run():
     cov = 1e-03*np.eye(3) # start covariance low but non-zero
 
     graph_slam = graph_slam_known(mu, alphas, betas)
+    plotter = hw_plot()
 
     # Find the last time recorded for while loop condition
     last_time = hw_measurements[-1][0] if hw_measurements[-1][0] > hw_odometry[-1][0] else hw_odometry[-1][0]
@@ -35,14 +36,7 @@ def run():
     u_ctr = 0
     z_ctr = 0
 
-    mu_data = []
-    cov_data = []
-    
-
     while curr_t < last_time:
-        # print(curr_t, last_time)
-        # print(z_ctr, u_ctr)
-
         if (hw_measurements[z_ctr][0] > curr_t):
             # Use the range/bearing measurement
             z = hw_measurements[z_ctr][1:] # get the measurements (without the timestep at the beginning)
@@ -57,14 +51,14 @@ def run():
             u = []
             u_ctr += 1
 
-        graph_slam.step(u,z)
+        if len(z) + len(u) != 0:
+            out = graph_slam.step(u,z)
+            # plotter.plot_step(mu, cov)
 
         # Increment time
         curr_t += dt
 
     print(mu, cov)
-
-    
 
 
 if __name__ == "__main__":

@@ -183,6 +183,8 @@ class simulation:
             # We'll also plot a covariance ellipse for each landmark
             helpers.plotCov2D(mu[3+i*2:3+i*2+2], Sigma[3+i*2:3+i*2+2, 3+i*2:3+i*2+2], nSigma=3)
 
+
+
 class ekf_slam:
     def __init__(self,initialSateMean,realCov,alphas,betas, updateMethod='batch'):
         self.R = np.diag(betas**2)
@@ -238,6 +240,8 @@ class ekf_slam:
             theta_end == 0
             
         return np.array([x, y, theta_end]), G, R
+
+
     def predict(self, mu, Sigma, u, M):
         N = int((len(mu)-3)/2)
         # Propogate Jacobian 
@@ -526,8 +530,3 @@ class graph_slam_known:
                 if (abs(pose_xy - curr_xy) <= xy_tol).all() and \
                     (abs(pose_theta - curr_theta) <= theta_tol*np.pi/180):
                         return k
-
-
-
-
-
