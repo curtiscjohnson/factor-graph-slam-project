@@ -1,6 +1,7 @@
 import numpy as np
 import gtsam
 import time
+import plotly.express as px
 import matplotlib.pyplot as plt
 import helpers
 from PIL import Image
@@ -80,24 +81,39 @@ class graph_slam_known:
                 k = k + 1
                 self.countK = countK + 1
 
-        # Check whether to update iSAM 2
-        if (k > self.minK) and (countK > self.incK):
-            if not self.initialized:  # Do a full optimize for first minK ranges
-                print(f"Initializing at time {k}")
-                batchOptimizer = gtsam.LevenbergMarquardtOptimizer(self.newFactors, initial)
-                initial = batchOptimizer.optimize()
-                self.initialized = True
-
-            self.isam.update(self.newFactors, initial)
-            result = self.isam.calculateEstimate()
-            lastPose = result.atPose2(i)
-            self.newFactors = gtsam.NonlinearFactorGraph()
-            initial = gtsam.Values()
-            self.countK = 0
-        
-        result = self.isam.calculateEstimate()
-
         self.i = self.i + 1
+
+
+    def finalize(self):
+        # Gets final results and plots
+        batchOptimizer = gtsam.LevenbergMarquardtOptimizer(self.newFactors, self.initial_estimate)
+        self.initialized = True
+
+        self.isam.update(self.newFactors, initial)
+        result = self.isam.calculateEstimate()
+        lastPose = result.atPose2(self.i)
+        self.newFactors = gtsam.NonlinearFactorGraph()
+        initial = gtsam.Values()
+            
+        finalResult = self.isam.calculateEstimate()
+        # Print optimized landmarks:
+        for j in range(1,38):
+            landmark_key = gtsam.symbol('L', j)
+            p = finalResult.atPoint2(landmark_key)
+            print(f"{landmark_key}: {p}")
+
+        # plot positions
+        poses = gtsam.utilities.allPose2s(finalResult)
+        landmarks = gtsam.utilities.extractPoint2(finalResult)
+        positions = np.array([poses.atPose2(key).translation()
+                            for key in poses.keys()])
+        print(positions.shape)
+
+        fig = px.scatter(x=positions[:,0],y=positions[:,1])
+        fig.add_scatter(x=landmarks[:,0], y=landmarks[:,1], mode="markers", showlegend= False)
+        fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+        fig.update_yaxes(scaleanchor = "x", scaleratio = 1)
+        fig.show()
 
 
 
@@ -209,7 +225,7 @@ def parseText(line: str):
         return output
 
 def get_measurements():
-    with open("measurement_data.txt") as f:
+    with open("code/measurement_data.txt") as f:
         m_txt = f.readlines()
         # remove new line characters
         m_txt = [x.strip() for x in m_txt]
