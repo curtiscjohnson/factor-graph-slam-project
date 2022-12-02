@@ -244,3 +244,27 @@ def block_diag(*arrs):
         r += rr
         c += cc
     return out
+
+def rot(th):
+    """
+    Compute 2D SO2 rotation matrix about the y axis (down in the case of the mobile base). NOT A ROTATION ABOUT Z!!
+    """
+    return np.array([[np.cos(th), np.sin(th)],
+                     [-np.sin(th), np.cos(th)]])
+
+def wrap_angle(th):
+    """
+    Wraps an angle to be in the range -pi <= theta <= pi. If given an array, calls this function recursively on each
+    element of the array.
+    """
+    if isinstance(th, np.ndarray):
+        ar = np.zeros_like(th)
+        for k, t in enumerate(th):
+            ar[k] = wrap_angle(t)
+        return ar
+    else:
+        while th > np.pi:
+            th = th - 2 * np.pi
+        while th < -np.pi:
+            th = th + 2 * np.pi
+        return th
