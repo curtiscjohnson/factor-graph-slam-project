@@ -408,7 +408,8 @@ class ekf_slam:
 class graph_slam_known:
     def __init__(self,initialSateMean, relinearizeThreshold=0.1):
         self.rng = default_rng()
-        
+        self.realRobot = initialSateMean
+        self.realCov = realCov
         # parameters
         self.minK = 50  # minimum number of range measurements to process initially
         self.incK = 15  # minimum number of range measurements to process after

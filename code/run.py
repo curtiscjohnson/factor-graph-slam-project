@@ -7,7 +7,7 @@ from simSLAM import graph_slam_known
 
 def run():
 
-    numSteps = 500
+    numSteps = 100
     # System Noise parameters
     alphas = np.array([0.05, 0.001, 0.05, 0.01])**2 # These have to do with the error in our motion controls
     betas = np.array([10, 10*np.pi/180]) # Error in observations
@@ -15,7 +15,7 @@ def run():
 
     mu = soccer_bot.get_initialStateMean()
     cov= 1e-03*np.eye(3) # start covariance low but non-zero
-    SLAM_alg = ekf_slam(mu,cov,alphas=alphas,betas=betas)
+    ekf_SLAM_alg = ekf_slam(mu,cov,alphas=alphas,betas=betas)
 
     graph_alg = graph_slam_known(mu)
 
@@ -28,7 +28,7 @@ def run():
         u,z = soccer_bot.step(mu,cov)
         # print("odometry\n", u)
         # print("measurement:\n", z)
-        mu,cov = SLAM_alg.step(u,z)
+        # mu,cov = ekf_SLAM_alg.step(u,z)
         # print("mean\n", mu)
         # print("covariance:\n", cov)
         graph_alg.step(u,z)
