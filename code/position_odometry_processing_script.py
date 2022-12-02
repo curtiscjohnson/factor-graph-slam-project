@@ -63,6 +63,11 @@ def propagate_wheel_pos(wp_prev, wth, wdelta):
 b = bagreader('./slam_data_1.bag')
 encoder_csv = b.message_by_topic('/mobile_base_0/encoders')
 encoder_data = pd.read_csv(encoder_csv)
+
+dN = 100
+
+encoder_data = encoder_data.iloc[::dN]
+
 encoder_data['Time'] = encoder_data['Time'] - encoder_data['Time'][0]
 encoder_data['segway.segway_0'] = encoder_data['segway.segway_0'] - encoder_data['segway.segway_0'][0]
 encoder_data['segway.segway_1'] = encoder_data['segway.segway_1'] - encoder_data['segway.segway_1'][0]
@@ -88,7 +93,6 @@ wheelRelativeTheta = np.vstack([encoder_data['castor.castor_0'],
                                 encoder_data['castor.castor_2'],
                                 encoder_data['castor.castor_3']]).T
 
-
 wheelDelta = np.zeros_like(wheelDistance)
 for i in range(1, n):
     wheelDelta[i] = wheelDistance[i] - wheelDistance[i - 1]
@@ -110,8 +114,6 @@ fig, ax = plt.subplots()
 viz = RobotViz(ax)
 
 for i in tqdm(range(1, n)):
-    # if i == 328:
-    #     print('help')
     wheelTheta[i] = wrap_angle(wheelRelativeTheta[i] + robotState[i - 1, 3])
     wphat = propagate_wheel_pos(wheelPos[i - 1], wheelTheta[i], wheelDelta[i])
 
@@ -130,7 +132,7 @@ for i in tqdm(range(1, n)):
     if i % 5 == 0:
         viz.update(robotState[i], wheelRelativeTheta[i])
 
-np.save('position_odometry_data.npy', robotState)
+# np.save('position_odometry_data.npy', robotState)
 
 fig2, axs = plt.subplots(1, 2)
 axs[0].plot(robotState[:, 0], robotState[:, 2], label='robot position', c='k')
