@@ -17,7 +17,7 @@ def run():
     cov= 1e-03*np.eye(3) # start covariance low but non-zero
     ekf_SLAM_alg = ekf_slam(mu,cov,alphas=alphas,betas=betas)
 
-    graph_alg = graph_slam_known(mu)
+    graph_alg = graph_slam_known(mu,cov)
 
     #=================================================
     # Parameters: 
@@ -29,9 +29,10 @@ def run():
         # print("odometry\n", u)
         # print("measurement:\n", z)
         # mu,cov = ekf_SLAM_alg.step(u,z)
+        # print(mu)
         # print("mean\n", mu)
         # print("covariance:\n", cov)
-        graph_alg.step(u,z)
+        mu,cov = graph_alg.step(u,z)
 
 
 

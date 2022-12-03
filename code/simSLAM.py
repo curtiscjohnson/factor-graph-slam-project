@@ -406,13 +406,15 @@ class ekf_slam:
         return np.array(association), np.array(H), np.array(innovation)
 
 class graph_slam_known:
-    def __init__(self,initialSateMean, relinearizeThreshold=0.1):
+    def __init__(self,initialSateMean, realCov, relinearizeThreshold=0.1):
         self.rng = default_rng()
-        self.realRobot = initialSateMean
+        self.realRobot = Pose2(initialSateMean[0], initialSateMean[1],initialSateMean[2])
         self.realCov = realCov
         # parameters
-        self.minK = 50  # minimum number of range measurements to process initially
-        self.incK = 15  # minimum number of range measurements to process after
+        self.minK = 500  # minimum number of range measurements to process initially
+        self.incK = 1  # minimum number of range measurements to process after
+
+        self.motiontest0 = initialSateMean
         robust = True
         
         
@@ -435,10 +437,10 @@ class graph_slam_known:
 
         # Add prior on first pose
         pose0 = Pose2(initialSateMean[0], initialSateMean[1],initialSateMean[2])
-        self.newFactors = gtsam.NonlinearFactorGraph()
-        self.newFactors.addPriorPose2(0, pose0, priorNoise)
-        self.initial_estimate = gtsam.Values()
-        self.initial_estimate.insert(0, pose0)
+        self.factor_graph = gtsam.NonlinearFactorGraph()
+        self.factor_graph.addPriorPose2(0, pose0, priorNoise)
+        self.initial = gtsam.Values()
+        self.initial.insert(0, pose0)
 
         # set some loop variables
         self.i = 1  # step counter
@@ -455,17 +457,24 @@ class graph_slam_known:
         i = self.i # step counter
         k = self.k  # range measurement counter
         # initialized = self.initialized
-        lastPose = self.lastPose
         countK = self.countK
-        relativePose = gtsam.Pose2(odometry)
+        temp_pose = np.array([self.lastPose.x(),self.lastPose.y(),self.lastPose.theta()])
+        motiontest1 = self.motion_model(odometry,self.motiontest0 )
+        self.motiontest0 = motiontest1
+        pose1 = self.motion_model(odometry,temp_pose)
+        self.realRobot = pose1
+        relativePose = gtsam.Pose2(pose1-temp_pose)
 
         # add odometry factor
-        self.newFactors.add(gtsam.BetweenFactorPose2(i - 1, i, relativePose, self.odoNoise))
+        self.factor_graph.add(gtsam.BetweenFactorPose2(i - 1, i, relativePose, self.odoNoise))
 
+        
         # predict pose and add as initial estimate
-        predictedPose = lastPose.compose(relativePose)
-        lastPose = predictedPose
-        self.initial_estimate.insert(i, predictedPose)
+        predictedPose = self.lastPose.compose(relativePose)
+        self.lastPose = predictedPose
+        self.initial.insert(i, predictedPose)
+        self.realRobot = self.lastPose
+        
 
         # Check if there are range factors to be added
         if (len(measurements) > 0):
@@ -473,36 +482,60 @@ class graph_slam_known:
                 dist, bearing, sig = z
                 j = sig
                 landmark_key = gtsam.symbol('L',int(j))
-                pose_key = gtsam.symbol('X',self.i)
+                pose_key = gtsam.symbol('X',i)
                 _range = dist
-                self.newFactors.add(gtsam.BearingRangeFactor2D(i, landmark_key, gtsam.Rot2(bearing),  dist, self.MEASUREMENT_NOISE))
+                self.factor_graph.add(gtsam.BearingRangeFactor2D(i, landmark_key, gtsam.Rot2(bearing),  dist, self.MEASUREMENT_NOISE))
                 if landmark_key not in self.initializedLandmarks:
-                    p = self.rng.normal(loc=0, scale=100, size=(2,))
-                    self.initial_estimate.insert(landmark_key, p)
+                    estimated_L_xy =  [predictedPose.x()+dist*np.cos(bearing+predictedPose.theta()),predictedPose.y()+dist*np.sin(bearing+predictedPose.theta())]
+                    self.initial.insert(landmark_key, estimated_L_xy)
                     print(f"Adding landmark L{j}")
                     self.initializedLandmarks.add(landmark_key)
                     # We also add a very loose prior on the landmark in case there is only
                     # one sighting, which cannot fully determine the landmark.
-                    self.newFactors.add(gtsam.PriorFactorPoint2(landmark_key, Point2(0, 0), self.looseNoise))
-                k = k + 1
+                    self.factor_graph.add(gtsam.PriorFactorPoint2(landmark_key, Point2(0, 0), self.looseNoise))
+                self.k = k + 1
                 self.countK = countK + 1
+            
 
         # Check whether to update iSAM 2
         if (k > self.minK) and (countK > self.incK):
             if not self.initialized:  # Do a full optimize for first minK ranges
                 print(f"Initializing at time {k}")
-                batchOptimizer = gtsam.LevenbergMarquardtOptimizer(self.newFactors, initial)
-                initial = batchOptimizer.optimize()
+                batchOptimizer = gtsam.LevenbergMarquardtOptimizer(self.factor_graph, self.initial)
+                self.initial = batchOptimizer.optimize()
                 self.initialized = True
 
-            self.isam.update(self.newFactors, initial)
+            self.isam.update(self.factor_graph, self.initial)
             result = self.isam.calculateEstimate()
             lastPose = result.atPose2(i)
-            self.newFactors = gtsam.NonlinearFactorGraph()
-            initial = gtsam.Values()
+            self.realRobot = lastPose
+            self.factor_graph = gtsam.NonlinearFactorGraph()
+            self.initial = gtsam.Values()
             self.countK = 0
-        self.i = self.i + 1
+            # marginals = gtsam.Marginals(self.factor_graph, result)
+            # self.realCov = marginals.marginalCovariance(i)
+        self.i = i + 1
 
+        mu = np.array([self.realRobot.x(),self.realRobot.y(),self.realRobot.theta()])
+        print(mu)
+        return motiontest1, self.realCov
+
+    ##################################################
+    # Implement the Motion Prediction Equations
+    ##################################################
+    def motion_model(self,u, mu):
+        x,y,theta = mu.flatten()
+        dr1, dt, dr2 = u.flatten()
+
+        # predicting motion
+        theta = theta + dr1
+        x = x + dt*np.cos(theta)
+        y = y + dt*np.sin(theta)
+
+        theta_end = theta + dr2
+        # theta_end = helpers.minimizedAngle(theta_end) 
+            
+        return np.array([x, y, theta_end])
 
     def determine_loop_closure(self, odom: np.ndarray, current_estimate: gtsam.Values, key: int, xy_tol=0.6, theta_tol=17) -> int:
         """Simple brute force approach which iterates through previous states
