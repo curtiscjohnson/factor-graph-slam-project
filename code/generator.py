@@ -178,6 +178,7 @@ def generate(initialStateMean, numSteps, alphas, beta, deltaT, maxObs=2, landmar
             print("Loaded saved data")
             return data
         except:
+            print("creating new data")
             pass
 
     observationDim = 3
@@ -227,6 +228,6 @@ def generate(initialStateMean, numSteps, alphas, beta, deltaT, maxObs=2, landmar
             data[n, start:start+3] = obs
             data[n, start+3:start+5] = noisyObs[1:]
 
-        np.savez("code/" + str(numSteps) + ".npz", data=data)
+        np.savez("code/savedData/" + str(numSteps) + ".npz", data=data)
 
     return data

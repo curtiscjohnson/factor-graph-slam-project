@@ -493,39 +493,39 @@ class graph_slam_known:
             
 
         # Check whether to update iSAM 2
-        if (k > self.minK) and (countK > self.incK):
-            if not self.initial_estimateized:  # Do a full optimize for first minK ranges
-                print(f"Initializing at time {k}")
-                params = gtsam.LevenbergMarquardtParams()
-                batchOptimizer = gtsam.LevenbergMarquardtOptimizer(self.factor_graph, self.initial_estimate,params)
-                self.initial_estimate = batchOptimizer.optimize()
-                self.initial_estimateized = True
+        # if (k > self.minK) and (countK > self.incK):
+        if not self.initial_estimateized:  # Do a full optimize for first minK ranges
+            print(f"Initializing at time {k}")
+            params = gtsam.LevenbergMarquardtParams()
+            batchOptimizer = gtsam.LevenbergMarquardtOptimizer(self.factor_graph, self.initial_estimate,params)
+            self.initial_estimate = batchOptimizer.optimize()
+            self.initial_estimateized = True
 
-            self.isam.update(self.factor_graph, self.initial_estimate)
-            current_estimate = self.isam.calculateEstimate()
-            lastPose = current_estimate.atPose2(i)
-            self.realRobot = lastPose
-            
-            self.countK = 0
-            
+        self.isam.update(self.factor_graph, self.initial_estimate)
+        current_estimate = self.isam.calculateEstimate()
+        lastPose = current_estimate.atPose2(i)
+        self.realRobot = lastPose
+        
+        self.countK = 0
+        
 
 
-            # lets try to plot things in more detail
-            # plot positions
-            poses = gtsam.utilities.allPose2s(current_estimate)
-            landmarks = gtsam.utilities.extractPoint2(current_estimate)
-            positions = np.array([poses.atPose2(key).translation()for key in poses.keys()])
-            print(positions.shape)
-            fig = px.scatter(x=positions[:,0],y=positions[:,1])
-            fig.add_scatter(x=landmarks[:,0], y=landmarks[:,1], mode="markers", showlegend= False)
-            fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
-            fig.update_yaxes(scaleanchor = "x", scaleratio = 1)
-            fig.show()
+        # lets try to plot things in more detail
+        # plot positions
+        # poses = gtsam.utilities.allPose2s(current_estimate)
+        # landmarks = gtsam.utilities.extractPoint2(current_estimate)
+        # positions = np.array([poses.atPose2(key).translation()for key in poses.keys()])
+        # print(positions.shape)
+        # fig = px.scatter(x=positions[:,0],y=positions[:,1])
+        # fig.add_scatter(x=landmarks[:,0], y=landmarks[:,1], mode="markers", showlegend= False)
+        # fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+        # fig.update_yaxes(scaleanchor = "x", scaleratio = 1)
+        # fig.show()
 
-            # marginals = gtsam.Marginals(self.factor_graph, current_estimate)
-            # self.realCov = marginals.marginalCovariance(i)
-            self.factor_graph = gtsam.NonlinearFactorGraph()
-            self.initial_estimate = gtsam.Values()
+        # marginals = gtsam.Marginals(self.factor_graph, current_estimate)
+        # self.realCov = marginals.marginalCovariance(i)
+        self.factor_graph = gtsam.NonlinearFactorGraph()
+        self.initial_estimate = gtsam.Values()
         self.i = i + 1
         
         mu = np.array([self.realRobot.x(),self.realRobot.y(),self.realRobot.theta()])

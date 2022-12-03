@@ -7,7 +7,7 @@ from simSLAM import graph_slam_known
 
 def run():
 
-    numSteps = 111
+    numSteps = 113
     # System Noise parameters
     alphas = np.array([0.05, 0.001, 0.05, 0.01])**2 # These have to do with the error in our motion controls
     betas = np.array([10, 10*np.pi/180]) # Error in observations
