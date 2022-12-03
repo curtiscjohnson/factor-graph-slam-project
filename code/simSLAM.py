@@ -421,6 +421,7 @@ class graph_slam_known:
         self.ODOMETRY_NOISE = NM.Diagonal.Sigmas(odo_sigmas)
         self.looseNoise = NM.Isotropic.Sigma(2, loose_sigma)
         self.MEASUREMENT_NOISE = NM.Diagonal.Sigmas(meas_sigmas)
+        self.cov = np.array([[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0]])
 
         # Initialize iSAM
         parameters = gtsam.ISAM2Params()
@@ -475,7 +476,8 @@ class graph_slam_known:
                 self.total_graph.add(gtsam.BearingRangeFactor2D(self.i, landmark_key, gtsam.Rot2(bearing),  dist, self.MEASUREMENT_NOISE))
                 
                 if landmark_key not in self.initial_estimatedLandmarks:
-                    estimated_L_xy=[predictedPose.x()+dist*np.cos(bearing+predictedPose.theta()),predictedPose.y()+dist*np.sin(bearing+predictedPose.theta())]
+                    minimized_angle = helpers.minimizedAngle(bearing+predictedPose.theta())
+                    estimated_L_xy=[predictedPose.x()+dist*np.cos(minimized_angle),predictedPose.y()+dist*np.sin(minimized_angle)]
                     self.initial_estimate.insert(landmark_key, estimated_L_xy)
                     self.overall_estimate.insert(landmark_key, estimated_L_xy)
                     print(f"Adding landmark L{j} at : {estimated_L_xy}")
@@ -488,32 +490,41 @@ class graph_slam_known:
 
                 self.k += 1
                 self.countK += 1
+        cov = self.cov  
+        landmark_cov = []  
+        mu = curr_pose
+        # Check whether to update iSAM 2
+        if (self.k > self.minK) and (self.countK > self.incK):
+            if not self.initialized:  # Do a full optimize for first minK ranges
+                print(f"Initializing at time {self.k}")
+                params = gtsam.LevenbergMarquardtParams()
+                batchOptimizer = gtsam.LevenbergMarquardtOptimizer(self.total_graph, self.overall_estimate, params)
+                self.initial_estimate = batchOptimizer.optimize()
+                self.overall_estimate = deepcopy(self.initial_estimate)
+                self.initialized = True
+                self.countK = 0
+
+            self.isam.update(self.factor_graph, self.initial_estimate)
+            current_estimate = self.isam.calculateEstimate()
+            lastPose = current_estimate.atPose2(self.i)
+            mu = np.array([lastPose.x(), lastPose.y(), lastPose.theta()])
+            
+            # Get the covariance of the robot
+            marginals = gtsam.Marginals(self.total_graph, self.overall_estimate)
+            robot_cov = marginals.marginalCovariance(self.i)
+            for key in self.initial_estimatedLandmarks:
+                landmark_cov.append(marginals.marginalCovariance(key))
+                mu = np.append(mu,self.overall_estimate.atPoint2(key))
+
+
+            self.factor_graph = gtsam.NonlinearFactorGraph()
+            self.initial_estimate = gtsam.Values()
             
 
-        # Check whether to update iSAM 2
-    # if (self.k > self.minK) and (self.countK > self.incK):
-        if not self.initialized:  # Do a full optimize for first minK ranges
-            print(f"Initializing at time {self.k}")
-            params = gtsam.LevenbergMarquardtParams()
-            batchOptimizer = gtsam.LevenbergMarquardtOptimizer(self.factor_graph, self.initial_estimate, params)
-            self.initial_estimate = batchOptimizer.optimize()
-            self.overall_estimate = deepcopy(self.initial_estimate)
-            self.initialized = True
-
-        self.isam.update(self.factor_graph, self.initial_estimate)
-        current_estimate = self.isam.calculateEstimate()
-        lastPose = current_estimate.atPose2(self.i)
-        
-        # Get the covariance of the robot
-        marginals = gtsam.Marginals(self.total_graph, self.overall_estimate)
-        cov = marginals.marginalCovariance(self.i)
-
-        self.factor_graph = gtsam.NonlinearFactorGraph()
-        self.initial_estimate = gtsam.Values()
-        self.countK = 0
+            for c in landmark_cov:
+                cov = helpers.block_diag(cov,c)
+            cov[:3,:3] = robot_cov
         self.i += 1
-        
-        mu = np.array([lastPose.x(), lastPose.y(), lastPose.theta()])
         return mu, cov
 
     ##################################################

@@ -22,7 +22,7 @@ def run():
                                             loose_sigma=10, 
                                             meas_sigmas=np.array([10, .5]),
                                             minK=50,
-                                            incK=50)
+                                            incK=0)
 
     #=================================================
     # Parameters: 
@@ -38,6 +38,7 @@ def run():
         # print("mean\n", mu)
         # print("covariance:\n", cov)
         mu,cov = graph_alg.step(u,z)
+
 
 
 
