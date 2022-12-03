@@ -458,23 +458,25 @@ class graph_slam_known:
         k = self.k  # range measurement counter
         # initialized = self.initialized
         countK = self.countK
-        temp_pose = np.array([self.lastPose.x(),self.lastPose.y(),self.lastPose.theta()])
         motiontest1 = self.motion_model(odometry,self.motiontest0 )
+        relativePose = gtsam.Pose2(motiontest1-self.motiontest0)
         self.motiontest0 = motiontest1
-        pose1 = self.motion_model(odometry,temp_pose)
-        self.realRobot = pose1
-        relativePose = gtsam.Pose2(pose1-temp_pose)
+        
+
+        # temp_pose = np.array([self.lastPose.x(),self.lastPose.y(),self.lastPose.theta()])
+        # pose1 = self.motion_model(odometry,temp_pose)
+        # self.realRobot = pose1
 
         # add odometry factor
         self.factor_graph.add(gtsam.BetweenFactorPose2(i - 1, i, relativePose, self.odoNoise))
 
         
         # predict pose and add as initial estimate
-        predictedPose = self.lastPose.compose(relativePose)
-        self.lastPose = predictedPose
-        self.initial.insert(i, predictedPose)
-        self.realRobot = self.lastPose
-        
+        # predictedPose = self.lastPose.compose(relativePose)
+        # self.lastPose = predictedPose
+        # self.initial.insert(i, predictedPose)
+        # self.realRobot = self.lastPose
+        predictedPose = Pose2(motiontest1[0], motiontest1[1],motiontest1[2])
 
         # Check if there are range factors to be added
         if (len(measurements) > 0):
@@ -516,8 +518,8 @@ class graph_slam_known:
             # self.realCov = marginals.marginalCovariance(i)
         self.i = i + 1
 
-        mu = np.array([self.realRobot.x(),self.realRobot.y(),self.realRobot.theta()])
-        print(mu)
+        # mu = np.array([self.realRobot.x(),self.realRobot.y(),self.realRobot.theta()])
+        # print(mu)
         return motiontest1, self.realCov
 
     ##################################################
