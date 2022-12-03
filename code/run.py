@@ -17,7 +17,7 @@ def run():
     cov= 1e-03*np.eye(3) # start covariance low but non-zero
     ekf_SLAM_alg = ekf_slam(mu,cov,alphas=alphas,betas=betas)
 
-    graph_alg = graph_slam_known(mu,cov)
+    graph_alg = graph_slam_known(alphas,mu,cov)
 
     #=================================================
     # Parameters: 
