@@ -412,26 +412,22 @@ class graph_slam_known:
         self.realCov = realCov
         self.num_landmarks = 0
         # parameters
-        self.minK = 3  # minimum number of range measurements to process initially
-        self.incK = 1  # minimum number of range measurements to process after
+        self.minK = 10  # minimum number of range measurements to process initially
+        self.incK = 10  # minimum number of range measurements to process after
 
         self.prev_pose = initialSateMean
         robust = True
         
         
         # Set Noise parameters
-        priorSigmas = gtsam.Point3(1, 1, math.pi) # !!! These may be replaced by alpha and beta
-        odoSigmas = gtsam.Point3(0.05, 0.01, 0.1) # !!!These may be replaced by alpha and beta
-        sigmaR = 100        # range standard deviation
+        priorSigmas = gtsam.Point3(0, 0, 0) # inital uncertianty
+        odoSigmas = gtsam.Point3(1, 1, 0.02) # 
 
         NM = gtsam.noiseModel
         priorNoise = NM.Diagonal.Sigmas(priorSigmas)  # prior
-        self.looseNoise = NM.Isotropic.Sigma(2, 1000)     # loose LM prior
         self.odoNoise = NM.Diagonal.Sigmas(odoSigmas)     # odometry
-        gaussian = NM.Isotropic.Sigma(1, sigmaR)     # non-robust
-        tukey = NM.Robust.Create(NM.mEstimator.Tukey.Create(15), gaussian)  # robust
-        self.rangeNoise = tukey if robust else gaussian
-        self.MEASUREMENT_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([0.1, 0.2]))
+
+        self.MEASUREMENT_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([100, (10*np.pi/180)**2]))
 
         # Initialize iSAM
         self.isam = gtsam.ISAM2()
@@ -467,6 +463,7 @@ class graph_slam_known:
         self.factor_graph.add(gtsam.BetweenFactorPose2(i - 1, i, relativePose, self.odoNoise))
 
         predictedPose = Pose2(curr_pose[0], curr_pose[1],curr_pose[2])
+        # self.realRobot = predictedPose
         self.initial.insert(i,predictedPose)
 
         # Check if there are range factors to be added
@@ -507,8 +504,9 @@ class graph_slam_known:
             # marginals = gtsam.Marginals(self.factor_graph, result)
             # self.realCov = marginals.marginalCovariance(i)
         self.i = i + 1
-
-        return curr_pose, self.realCov
+        
+        mu = np.array([self.realRobot.x(),self.realRobot.y(),self.realRobot.theta()])
+        return mu, self.realCov
 
     ##################################################
     # Implement the Motion Prediction Equations
