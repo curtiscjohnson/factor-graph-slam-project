@@ -7,7 +7,7 @@ from simSLAM import graph_slam_known
 
 def run():
 
-    numSteps = 113
+    numSteps = 200
     # System Noise parameters
     alphas = np.array([0.05, 0.001, 0.05, 0.01])**2 # These have to do with the error in our motion controls
     betas = np.array([10, 10*np.pi/180]) # Error in observations
@@ -17,7 +17,12 @@ def run():
     cov= 1e-03*np.eye(3) # start covariance low but non-zero
     ekf_SLAM_alg = ekf_slam(mu,cov,alphas=alphas,betas=betas)
 
-    graph_alg = graph_slam_known(mu,cov)
+    graph_alg = graph_slam = graph_slam_known(mu, prior_sigmas=np.array([0,0,0]),
+                                            odo_sigmas=np.array([10, 10, 0.1]), 
+                                            loose_sigma=10, 
+                                            meas_sigmas=np.array([10, .5]),
+                                            minK=50,
+                                            incK=50)
 
     #=================================================
     # Parameters: 

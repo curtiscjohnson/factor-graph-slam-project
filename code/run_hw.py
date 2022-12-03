@@ -2,6 +2,7 @@
 import numpy as np
 from hwSLAM import graph_slam_known, get_measurements
 import matplotlib.pyplot as plt
+import time
 
 def run():
     """" 
@@ -23,6 +24,8 @@ def run():
 
                 # np.array([t, x, y, theta])
     hw_odometry = np.load("position_odometry_data.npy")
+    hw_odometry = hw_odometry[:,np.r_[1,0,2:4]]
+
     # hw_odometry = np.load("velocity_odometry_data.npy")
 
     m = hw_odometry.shape[0]
@@ -31,7 +34,7 @@ def run():
     hw_odometry = hw_odometry[np.linspace(0, m-1, num=n, dtype=int), :]
 
     # fig2, axs = plt.subplots(1, 2)
-    # axs[0].plot(hw_odometry[:, 0], hw_odometry[:, 2], label='robot position', c='k')
+    # axs[0].plot(hw_odometry[:, 1], hw_odometry[:, 2], label='robot position', c='k')
     # axs[1].plot(hw_odometry[:, 3], label='robot base theta')
     # axs[0].axis('equal')
     # axs[0].legend()
@@ -39,20 +42,23 @@ def run():
     # plt.show()
 
     mu = [0, 0, 0]
-    cov = 1e-03*np.eye(3) # initial covariance low but non-zero
 
-    graph_slam = graph_slam_known(mu, alphas, betas)
+    graph_slam = graph_slam_known(mu, prior_sigmas=np.array([0,0,0]),
+                                      odo_sigmas=np.array([10, 10, 0.1]), 
+                                      loose_sigma=10, 
+                                      meas_sigmas=np.array([10, .5]),
+                                      minK=50,
+                                      incK=50)
 
     for step in range(n):
         z = hw_measurements[step][1:] # get the measurements (without the timestep at the beginning)
         u = hw_odometry[step][1:] # get the odometry data (without the timestep at the beginning)
-
-        result = graph_slam.step(u,z)
+        
+        mu = graph_slam.step(u,z)
         if step % 20 == 0:
-            graph_slam.plot_step(result)
+            graph_slam.plot_step(mu)
+            time.sleep(0.1)
 
-    
-    graph_slam.finalize()
     print("finished")
     
 

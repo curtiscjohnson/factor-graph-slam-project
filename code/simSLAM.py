@@ -10,6 +10,7 @@ from gtsam import Point2, Pose2
 import gtsam.utils.plot as gtsam_plot
 from numpy.random import default_rng
 import plotly.express as px
+from copy import deepcopy
 
 
 
@@ -183,7 +184,6 @@ class simulation:
         for i in range(int((len(mu) - 3)/2)):
             # We'll also plot a covariance ellipse for each landmark
             helpers.plotCov2D(mu[3+i*2:3+i*2+2], Sigma[3+i*2:3+i*2+2, 3+i*2:3+i*2+2], nSigma=3)
-
 
 
 class ekf_slam:
@@ -407,67 +407,63 @@ class ekf_slam:
         return np.array(association), np.array(H), np.array(innovation)
 
 class graph_slam_known:
-    def __init__(self,initialSateMean, realCov, relinearizeThreshold=0.1):
-        self.rng = default_rng()
-        self.realRobot = Pose2(initialSateMean[0], initialSateMean[1],initialSateMean[2])
-        self.realCov = realCov
-        self.rng = default_rng()
-        # parameters
-        self.minK = 15  # minimum number of range measurements to process initially
-        self.incK = 5  # minimum number of range measurements to process after
+    def __init__(self, initialMean, 
+                prior_sigmas=np.array([0, 0, 0]), 
+                odo_sigmas=np.array([10, 10, 0.2]), 
+                loose_sigma=10, 
+                meas_sigmas=np.array([100, (10*np.pi/180)**2]),
+                minK=50,
+                incK=10):
 
-        self.prev_pose = initialSateMean
-        
-        
-        # Set Noise parameters
-        priorSigmas = gtsam.Point3(0, 0, 0) # inital uncertianty
-        odoSigmas = gtsam.Point3(10, 10, 0.2) # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! not sure i belive this
-
+        # Set up Noise Parameters
         NM = gtsam.noiseModel
-        self.looseNoise = NM.Isotropic.Sigma(2, 10)     # loose LM prior
-        priorNoise = NM.Diagonal.Sigmas(priorSigmas)  # prior
-        self.ODOMETRY_NOISE = NM.Diagonal.Sigmas(odoSigmas)     # odometry
-
-        self.MEASUREMENT_NOISE = gtsam.noiseModel.Diagonal.Sigmas(np.array([100, (10*np.pi/180)**2]))
+        PRIOR_NOISE = NM.Diagonal.Sigmas(prior_sigmas)
+        self.ODOMETRY_NOISE = NM.Diagonal.Sigmas(odo_sigmas)
+        self.looseNoise = NM.Isotropic.Sigma(2, loose_sigma)
+        self.MEASUREMENT_NOISE = NM.Diagonal.Sigmas(meas_sigmas)
 
         # Initialize iSAM
-        self.isam = gtsam.ISAM2()
+        parameters = gtsam.ISAM2Params()
+        parameters.setRelinearizeThreshold(0.1)
+        self.isam = gtsam.ISAM2(parameters)
+
+        self.factor_graph = gtsam.NonlinearFactorGraph()
+        self.initial_estimate = gtsam.Values()
 
         # Add prior on first pose
-        pose0 = Pose2(initialSateMean[0], initialSateMean[1],initialSateMean[2])
-        self.factor_graph = gtsam.NonlinearFactorGraph()
-        self.factor_graph.addPriorPose2(0, pose0, priorNoise)
-        self.initial_estimate = gtsam.Values()
+        pose0 = gtsam.Pose2(*initialMean)
+        self.factor_graph.addPriorPose2(0, pose0, PRIOR_NOISE)
         self.initial_estimate.insert(0, pose0)
+
+        self.overall_estimate = deepcopy(self.initial_estimate)
+        self.total_graph = deepcopy(self.factor_graph)
+
+        # Parameters
+        self.minK = minK  # minimum number of range measurements to process initially
+        self.incK = incK  # minimum number of range measurements to process after
 
         # set some loop variables
         self.i = 1  # step counter
-        self.k = 0  # range measurement counter
-        self.initial_estimateized = False
-        self.lastPose = pose0
         self.countK = 0
-
-        self.initial_estimatedLandmarks = set()
-        # Initialize the current estimate which is used during the incremental inference loop.
-        current_estimate = self.initial_estimate
+        self.k = 0
+        self.initialized = False
+        self.prev_pose = initialMean
+        self.initial_estimatedLandmarks = set()        
 
 
     def step(self, odometry, measurements):
-        # set some loop variables
-        i = self.i # step counter
-        k = self.k  # range measurement counter
-        # initialized = self.initial_estimateized
-        countK = self.countK
-        curr_pose = self.motion_model(odometry,self.prev_pose )
+        curr_pose = self.motion_model(odometry, self.prev_pose)
         relativePose = gtsam.Pose2(curr_pose-self.prev_pose)
         self.prev_pose = curr_pose
 
         # add odometry factor
-        self.factor_graph.add(gtsam.BetweenFactorPose2(i - 1, i, relativePose, self.ODOMETRY_NOISE))
+        self.factor_graph.add(gtsam.BetweenFactorPose2(self.i-1, self.i, relativePose, self.ODOMETRY_NOISE))
+        self.total_graph.add(gtsam.BetweenFactorPose2(self.i-1, self.i, relativePose, self.ODOMETRY_NOISE))
 
         predictedPose = Pose2(curr_pose[0], curr_pose[1],curr_pose[2])
         # self.realRobot = predictedPose
-        self.initial_estimate.insert(i,predictedPose)
+        self.initial_estimate.insert(self.i,predictedPose)
+        self.overall_estimate.insert(self.i,predictedPose)
 
         # Check if there are range factors to be added
         if (len(measurements) > 0):
@@ -475,66 +471,55 @@ class graph_slam_known:
                 dist, bearing, sig = z
                 j = sig
                 landmark_key = gtsam.symbol("L",int(j))
-                pose_key = gtsam.symbol('X',i)
-                _range = dist
-                self.factor_graph.add(gtsam.BearingRangeFactor2D(i, landmark_key, gtsam.Rot2(bearing),  dist, self.MEASUREMENT_NOISE))
+                self.factor_graph.add(gtsam.BearingRangeFactor2D(self.i, landmark_key, gtsam.Rot2(bearing),  dist, self.MEASUREMENT_NOISE))
+                self.total_graph.add(gtsam.BearingRangeFactor2D(self.i, landmark_key, gtsam.Rot2(bearing),  dist, self.MEASUREMENT_NOISE))
+                
                 if landmark_key not in self.initial_estimatedLandmarks:
                     estimated_L_xy=[predictedPose.x()+dist*np.cos(bearing+predictedPose.theta()),predictedPose.y()+dist*np.sin(bearing+predictedPose.theta())]
                     self.initial_estimate.insert(landmark_key, estimated_L_xy)
-                    print(f"Adding landmark L{j}")
-                    print(estimated_L_xy)
+                    self.overall_estimate.insert(landmark_key, estimated_L_xy)
+                    print(f"Adding landmark L{j} at : {estimated_L_xy}")
                     self.initial_estimatedLandmarks.add(landmark_key)
+
                     # We also add a very loose prior on the landmark in case there is only
                     # one sighting, which cannot fully determine the landmark.
                     self.factor_graph.add(gtsam.PriorFactorPoint2(landmark_key, estimated_L_xy, self.looseNoise))
+                    self.total_graph.add(gtsam.PriorFactorPoint2(landmark_key, estimated_L_xy, self.looseNoise))
 
-                self.k = k + 1
-                self.countK = countK + 1
+                self.k += 1
+                self.countK += 1
             
 
         # Check whether to update iSAM 2
-        # if (k > self.minK) and (countK > self.incK):
-        if not self.initial_estimateized:  # Do a full optimize for first minK ranges
-            print(f"Initializing at time {k}")
+    # if (self.k > self.minK) and (self.countK > self.incK):
+        if not self.initialized:  # Do a full optimize for first minK ranges
+            print(f"Initializing at time {self.k}")
             params = gtsam.LevenbergMarquardtParams()
-            batchOptimizer = gtsam.LevenbergMarquardtOptimizer(self.factor_graph, self.initial_estimate,params)
+            batchOptimizer = gtsam.LevenbergMarquardtOptimizer(self.factor_graph, self.initial_estimate, params)
             self.initial_estimate = batchOptimizer.optimize()
-            self.initial_estimateized = True
+            self.overall_estimate = deepcopy(self.initial_estimate)
+            self.initialized = True
 
         self.isam.update(self.factor_graph, self.initial_estimate)
         current_estimate = self.isam.calculateEstimate()
-        lastPose = current_estimate.atPose2(i)
-        self.realRobot = lastPose
+        lastPose = current_estimate.atPose2(self.i)
         
-        self.countK = 0
-        
+        # Get the covariance of the robot
+        marginals = gtsam.Marginals(self.total_graph, self.overall_estimate)
+        cov = marginals.marginalCovariance(self.i)
 
-
-        # lets try to plot things in more detail
-        # plot positions
-        # poses = gtsam.utilities.allPose2s(current_estimate)
-        # landmarks = gtsam.utilities.extractPoint2(current_estimate)
-        # positions = np.array([poses.atPose2(key).translation()for key in poses.keys()])
-        # print(positions.shape)
-        # fig = px.scatter(x=positions[:,0],y=positions[:,1])
-        # fig.add_scatter(x=landmarks[:,0], y=landmarks[:,1], mode="markers", showlegend= False)
-        # fig.update_layout(margin=dict(l=0, r=0, t=0, b=0))
-        # fig.update_yaxes(scaleanchor = "x", scaleratio = 1)
-        # fig.show()
-
-        # marginals = gtsam.Marginals(self.factor_graph, current_estimate)
-        # self.realCov = marginals.marginalCovariance(i)
         self.factor_graph = gtsam.NonlinearFactorGraph()
         self.initial_estimate = gtsam.Values()
-        self.i = i + 1
+        self.countK = 0
+        self.i += 1
         
-        mu = np.array([self.realRobot.x(),self.realRobot.y(),self.realRobot.theta()])
-        return mu, self.realCov
+        mu = np.array([lastPose.x(), lastPose.y(), lastPose.theta()])
+        return mu, cov
 
     ##################################################
     # Implement the Motion Prediction Equations
     ##################################################
-    def motion_model(self,u, mu):
+    def motion_model(self, u, mu):
         x,y,theta = mu.flatten()
         dr1, dt, dr2 = u.flatten()
 
@@ -547,31 +532,3 @@ class graph_slam_known:
         # theta_end = helpers.minimizedAngle(theta_end) 
             
         return np.array([x, y, theta_end])
-
-    def determine_loop_closure(self, odom: np.ndarray, current_estimate: gtsam.Values, key: int, xy_tol=0.6, theta_tol=17) -> int:
-        """Simple brute force approach which iterates through previous states
-        and checks for loop closure.
-
-        Args:
-            odom: Vector representing noisy odometry (x, y, theta) measurement in the body frame.
-            current_estimate: The current estimates computed by iSAM2.
-            key: Key corresponding to the current state estimate of the robot.
-            xy_tol: Optional argument for the x-y measurement tolerance, in meters.
-            theta_tol: Optional argument for the theta measurement tolerance, in degrees.
-        Returns:
-            k: The key of the state which is helping add the loop closure constraint.
-                If loop closure is not found, then None is returned.
-        """
-        if current_estimate:
-            prev_est = current_estimate.atPose2(key+1)
-            rotated_odom = prev_est.rotation().matrix() @ odom[:2]
-            curr_xy = np.array([prev_est.x() + rotated_odom[0],
-                                prev_est.y() + rotated_odom[1]])
-            curr_theta = prev_est.theta() + odom[2]
-            for k in range(1, key+1):
-                pose_xy = np.array([current_estimate.atPose2(k).x(),
-                                    current_estimate.atPose2(k).y()])
-                pose_theta = current_estimate.atPose2(k).theta()
-                if (abs(pose_xy - curr_xy) <= xy_tol).all() and \
-                    (abs(pose_theta - curr_theta) <= theta_tol*np.pi/180):
-                        return k
