@@ -410,11 +410,12 @@ class graph_slam_known:
         self.rng = default_rng()
         self.realRobot = Pose2(initialSateMean[0], initialSateMean[1],initialSateMean[2])
         self.realCov = realCov
+        self.num_landmarks = 0
         # parameters
-        self.minK = 500  # minimum number of range measurements to process initially
+        self.minK = 3  # minimum number of range measurements to process initially
         self.incK = 1  # minimum number of range measurements to process after
 
-        self.motiontest0 = initialSateMean
+        self.prev_pose = initialSateMean
         robust = True
         
         
@@ -458,32 +459,22 @@ class graph_slam_known:
         k = self.k  # range measurement counter
         # initialized = self.initialized
         countK = self.countK
-        motiontest1 = self.motion_model(odometry,self.motiontest0 )
-        relativePose = gtsam.Pose2(motiontest1-self.motiontest0)
-        self.motiontest0 = motiontest1
-        
-
-        # temp_pose = np.array([self.lastPose.x(),self.lastPose.y(),self.lastPose.theta()])
-        # pose1 = self.motion_model(odometry,temp_pose)
-        # self.realRobot = pose1
+        curr_pose = self.motion_model(odometry,self.prev_pose )
+        relativePose = gtsam.Pose2(curr_pose-self.prev_pose)
+        self.prev_pose = curr_pose
 
         # add odometry factor
         self.factor_graph.add(gtsam.BetweenFactorPose2(i - 1, i, relativePose, self.odoNoise))
 
-        
-        # predict pose and add as initial estimate
-        # predictedPose = self.lastPose.compose(relativePose)
-        # self.lastPose = predictedPose
-        # self.initial.insert(i, predictedPose)
-        # self.realRobot = self.lastPose
-        predictedPose = Pose2(motiontest1[0], motiontest1[1],motiontest1[2])
+        predictedPose = Pose2(curr_pose[0], curr_pose[1],curr_pose[2])
+        self.initial.insert(i,predictedPose)
 
         # Check if there are range factors to be added
         if (len(measurements) > 0):
             for z in measurements:
                 dist, bearing, sig = z
                 j = sig
-                landmark_key = gtsam.symbol('L',int(j))
+                landmark_key = gtsam.symbol("L",int(j))
                 pose_key = gtsam.symbol('X',i)
                 _range = dist
                 self.factor_graph.add(gtsam.BearingRangeFactor2D(i, landmark_key, gtsam.Rot2(bearing),  dist, self.MEASUREMENT_NOISE))
@@ -492,9 +483,8 @@ class graph_slam_known:
                     self.initial.insert(landmark_key, estimated_L_xy)
                     print(f"Adding landmark L{j}")
                     self.initializedLandmarks.add(landmark_key)
-                    # We also add a very loose prior on the landmark in case there is only
-                    # one sighting, which cannot fully determine the landmark.
-                    self.factor_graph.add(gtsam.PriorFactorPoint2(landmark_key, Point2(0, 0), self.looseNoise))
+                    self.num_landmarks+=1
+
                 self.k = k + 1
                 self.countK = countK + 1
             
@@ -518,9 +508,7 @@ class graph_slam_known:
             # self.realCov = marginals.marginalCovariance(i)
         self.i = i + 1
 
-        # mu = np.array([self.realRobot.x(),self.realRobot.y(),self.realRobot.theta()])
-        # print(mu)
-        return motiontest1, self.realCov
+        return curr_pose, self.realCov
 
     ##################################################
     # Implement the Motion Prediction Equations
