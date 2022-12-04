@@ -185,7 +185,6 @@ class simulation:
             # We'll also plot a covariance ellipse for each landmark
             helpers.plotCov2D(mu[3+i*2:3+i*2+2], Sigma[3+i*2:3+i*2+2, 3+i*2:3+i*2+2], nSigma=3)
 
-
 class ekf_slam:
     def __init__(self,initialSateMean,realCov,alphas,betas, updateMethod='batch'):
         self.R = np.diag(betas**2)
@@ -413,7 +412,9 @@ class graph_slam_known:
                 loose_sigma=10, 
                 meas_sigmas=np.array([100, (10*np.pi/180)**2]),
                 minK=50,
-                incK=10):
+                incK=10,
+                alphas=np.zeros((4,)),
+                betas=np.zeros((3,))):
 
         # Set up Noise Parameters
         NM = gtsam.noiseModel
@@ -422,6 +423,8 @@ class graph_slam_known:
         self.looseNoise = NM.Isotropic.Sigma(2, loose_sigma)
         self.MEASUREMENT_NOISE = NM.Diagonal.Sigmas(meas_sigmas)
         self.cov = np.array([[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0]])
+        self.alphas = alphas
+        self.betas = betas
 
         # Initialize iSAM
         parameters = gtsam.ISAM2Params()
@@ -456,13 +459,14 @@ class graph_slam_known:
 
 
     def step(self, odometry, measurements):
-        curr_pose = self.motion_model(odometry, self.prev_pose)
+        curr_pose, odometryNoise = self.motion_model(odometry, self.prev_pose)
+        odometryNoise = gtsam.noiseModel.Gaussian.Covariance(odometryNoise)
         relativePose = gtsam.Pose2(curr_pose-self.prev_pose)
         self.prev_pose = curr_pose
 
         # add odometry factor
-        self.factor_graph.add(gtsam.BetweenFactorPose2(self.i-1, self.i, relativePose, self.ODOMETRY_NOISE))
-        self.total_graph.add(gtsam.BetweenFactorPose2(self.i-1, self.i, relativePose, self.ODOMETRY_NOISE))
+        self.factor_graph.add(gtsam.BetweenFactorPose2(self.i-1, self.i, relativePose, odometryNoise))
+        self.total_graph.add(gtsam.BetweenFactorPose2(self.i-1, self.i, relativePose, odometryNoise))
 
         predictedPose = Pose2(curr_pose[0], curr_pose[1],curr_pose[2])
         # self.realRobot = predictedPose
@@ -543,6 +547,9 @@ class graph_slam_known:
         x,y,theta = mu.flatten()
         dr1, dt, dr2 = u.flatten()
 
+        alphas = self.alphas
+        betas = self.betas
+
         # predicting motion
         theta = theta + dr1
         x = x + dt*np.cos(theta)
@@ -550,5 +557,15 @@ class graph_slam_known:
 
         theta_end = theta + dr2
         # theta_end = helpers.minimizedAngle(theta_end) 
+
+        M = np.array([[alphas[0]*dr1**2+alphas[1]*dt**2,0                                                   ,0                                       ],
+                [0                                     ,alphas[2]*dt**2 + alphas[3]*(dr1**2+dr2**2) ,0                                       ],
+                [0                                     ,0                                                   ,alphas[0]*dr2**2 + alphas[1]*dt**2]])
+        
+        R = np.array([[-dt*np.sin(theta), np.cos(theta), 0],
+                    [ dt*np.cos(theta), np.sin(theta), 0],
+                    [1                      ,0       , 1]])
+
+        Sigma_odometry = R @ M @ R.T
             
-        return np.array([x, y, theta_end])
+        return np.array([x, y, theta_end]), Sigma_odometry

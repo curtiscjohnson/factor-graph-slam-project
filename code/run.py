@@ -18,13 +18,14 @@ def run():
     cov= 1e-03*np.eye(3) # start covariance low but non-zero
     ekf_SLAM_alg = ekf_slam(mu,cov,alphas=alphas,betas=betas)
 
-    graph_alg = graph_slam_known(mu, 
-                                prior_sigmas=np.array([0,0,0]),
-                                odo_sigmas=np.array([1, 1, 0.1]), 
-                                loose_sigma=10, 
-                                meas_sigmas=np.array([0.1, 0.1]),
-                                minK=10,
-                                incK=0)
+    graph_alg = graph_slam = graph_slam_known(mu, prior_sigmas=np.array([0,0,0]),
+                                            odo_sigmas=np.array([10, 10, 0.1]), 
+                                            loose_sigma=10, 
+                                            meas_sigmas=np.array([10, .5]),
+                                            minK=50,
+                                            incK=0,
+                                            alphas=alphas,
+                                            betas=betas)
 
     #=================================================
     # Parameters: 
