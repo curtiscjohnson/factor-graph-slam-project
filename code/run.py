@@ -22,7 +22,9 @@ def run():
                                             loose_sigma=10, 
                                             meas_sigmas=np.array([10, .5]),
                                             minK=50,
-                                            incK=0)
+                                            incK=0,
+                                            alphas=alphas,
+                                            betas=betas)
 
     #=================================================
     # Parameters: 
