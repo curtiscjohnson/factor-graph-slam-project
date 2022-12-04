@@ -449,7 +449,9 @@ class graph_slam_known:
         self.k = 0
         self.initialized = False
         self.prev_pose = initialMean
-        self.initial_estimatedLandmarks = set()        
+        self.initial_estimatedLandmarks = set()       
+
+        self.path = np.array([0, 0]) 
 
 
     def step(self, odometry, measurements):
@@ -524,8 +526,14 @@ class graph_slam_known:
             for c in landmark_cov:
                 cov = helpers.block_diag(cov,c)
             cov[:3,:3] = robot_cov
+
+            poses = gtsam.utilities.allPose2s(current_estimate)
+            self.path = np.array([poses.atPose2(key).translation() for key in poses.keys()])
+        else:
+            self.path = np.vstack([self.path, mu[0:2]])
+
         self.i += 1
-        return mu, cov
+        return mu, cov, self.path
 
     ##################################################
     # Implement the Motion Prediction Equations

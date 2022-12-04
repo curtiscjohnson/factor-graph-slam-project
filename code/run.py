@@ -37,7 +37,8 @@ def run():
         # print(mu)
         # print("mean\n", mu)
         # print("covariance:\n", cov)
-        mu,cov = graph_alg.step(u,z)
+        mu, cov, path = graph_alg.step(u,z)
+        soccer_bot.muHist = path
 
 
 
