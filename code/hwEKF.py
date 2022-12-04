@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 class DataLoader:
@@ -99,6 +100,81 @@ class DataLoader:
             return None
 
 
+class EKFFilter:
+    def __init__(self):
+        self.Q = np.diag([1, 0.1])
+        self.R = np.diag([1, 1, 0.1])
+        self.mu = np.array([0, 0, 0])
+        self.cov = np.eye(3) * 0.1
+
+        self.landmark_dictionary = {}
+
+    def move(self, r: np.ndarray):
+        delta = r - self.mu[0:3]
+        self.mu[0:3] = r
+        self.cov = self.cov + self.R
+        # update the covariance
+    
+    def correct(self, z):
+        m = len(z)
+        if m == 0:
+            return
+
+    def augment(self, z):
+        m = len(z)
+        if m == 0:
+            return
+
+    def update(self, u):
+        odometry = u[0]
+        measurements = u[1]
+
+        if odometry is not None:
+            self.move(odometry)
+
+        if measurements is not None:
+            augmentList = []
+            correctionList = []
+            for z in measurements:
+                tagID = z[0]
+                if tagID in self.landmark_dictionary.keys():
+                    correctionList.append(z)
+                else:
+                    augmentList.append(z)
+            self.correct(correctionList)
+            self.augment(augmentList)
+        
+
+class HWVizualization:
+    def __init__(self):
+        self.fig, self.ax = plt.subplots()
+        self.path, = self.ax.plot(c='k', ls='--')
+        self.robotCov, = self.ax.plot(c='r', ls='--')
+        self.landmarkCovs = []
+        
+        theta = np.linspace(0, 2 * np.pi, 20)
+        self.circle = np.array([[np.cos(th), np.sin(th)] for th in theta])
+    
+    def update(self, path, cov):
+        self.path.set_data(path[:, 0], path[:, 1])
+        covPoints = self.get_ellipse(path[-1], cov)
+        self.robotCov.set_data(covPoints[:, 0], covPoints[:, 1])
+    
+    def get_ellipse(self, center, A):
+        E, V = np.linalg.eig(A)
+        i = 0 if E[0] > E[1] else 1
+        j = 1 - i
+        angle = np.arctan2(V[:, i][1], V[:, i][0])
+        R = np.array([[np.cos(angle), -np.sin(angle)],
+                    [np.sin(angle), np.cos(angle)]])
+        scale = np.sqrt(E)
+
+        p = np.copy(self.circle)
+        p[:, 0] = p[:, 0] * 3 * scale[i]
+        p[:, 1] = p[:, 1] * 3 * scale[i]
+
+        p = p @ R.T
+        return p
 
 if __name__ == '__main__':
     loader = DataLoader()
