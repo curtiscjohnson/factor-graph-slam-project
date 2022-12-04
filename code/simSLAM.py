@@ -29,7 +29,7 @@ helpers.printDebug = False
 from helpers import debugPrint
 
 class simulation:
-    def __init__(self, numSteps=100, pauseLen=0.0, makeGif=True, alphas=np.array([0.05, 0.001, 0.05, 0.01])**2,betas= np.array([10, 10*np.pi/180])):
+    def __init__(self, numSteps=100, pauseLen=0.0, makeGif=True, alphas=np.array([0.05, 0.001, 0.05, 0.01])**2, betas= np.array([10, 10*np.pi/180])):
         self.numSteps = numSteps
         self.pauseLen = pauseLen
         self.makeGif = makeGif
@@ -43,7 +43,7 @@ class simulation:
         deltaT = 0.1 # Time between each timestep, must be < 1.0s
         
         # NOTE: The below will pull a previously-generated dataset if one exists for the format you've selected.  If this is undesireable, call with "forceNew=True"
-        self.data = generate(self.initial_estimateStateMean, numSteps, alphas, betas, deltaT, maxObs, forceNew=False) # there are other options in this function def for what landmarks are observed, we won't mess with them
+        self.data = generate(self.initial_estimateStateMean, numSteps, alphas, betas, deltaT, maxObs, forceNew=True) # there are other options in this function def for what landmarks are observed, we won't mess with them
 
 
         self.muHist = np.zeros((numSteps, 2)) # Tracking the position of the robot over time for plotting
@@ -433,6 +433,7 @@ class graph_slam_known:
 
         # Add prior on first pose
         pose0 = gtsam.Pose2(*initialMean)
+        print(pose0)
         self.factor_graph.addPriorPose2(0, pose0, PRIOR_NOISE)
         self.initial_estimate.insert(0, pose0)
 
