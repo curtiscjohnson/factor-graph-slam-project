@@ -14,7 +14,9 @@ class DataLoader:
         for m in m_txt:
             k = self.parseText(m)
             if k != None:
-                self.mdata.append(self.parseText(m))
+                line = self.parseText(m)
+                if line is not None:
+                    self.mdata.append(line)
         # Data is parsed as a list, each element of which corresponds to a specific time. Each element is as follows:
         # self.mdata[i] = (t, listOfMeasurements)
         # listOfMeasurements is a list, each element of which is like this:
@@ -39,27 +41,30 @@ class DataLoader:
         return self
         
     def __next__(self):
+
+        if self.i >= self.n or self.j >= self.m:
+            raise StopIteration
         
-        odometry = None
-        measurement = None
-
-        t_odometry = self.odata[self.i][0]
-        t_measurement = self.mdata[self.j][0]
-
-        if abs(t_odometry - t_measurement) < 1e-5:  # if we have odometry and measurement at the same time
-            odometry = self.odata[self.i][1:None]
-            self.i += 1
-            measurement = self.mdata[self.j][1]
-            self.j += 1
         else:
-            if t_odometry < t_measurement:
+            odometry = None
+            measurement = None
+
+            t_odometry = self.odata[self.i][0]
+            t_measurement = self.mdata[self.j][0]
+            if abs(t_odometry - t_measurement) < 1e-5:  # if we have odometry and measurement at the same time
                 odometry = self.odata[self.i][1:None]
                 self.i += 1
-            else:
                 measurement = self.mdata[self.j][1]
                 self.j += 1
+            else:
+                if t_odometry < t_measurement:
+                    odometry = self.odata[self.i][1:None]
+                    self.i += 1
+                else:
+                    measurement = self.mdata[self.j][1]
+                    self.j += 1
 
-        return odometry, measurement
+            return odometry, measurement
     
     def parseText(self, line: str):
 
@@ -88,13 +93,17 @@ class DataLoader:
                 bearing = float(l[r_end+2:])
 
                 measurements.append((id, range, bearing))
-        output = (t, measurements)
-        return output
+            output = (t, measurements)
+            return output
+        else:
+            return None
 
 
 
 if __name__ == '__main__':
     loader = DataLoader()
 
+    for x in loader:
+        print(x)
 
 

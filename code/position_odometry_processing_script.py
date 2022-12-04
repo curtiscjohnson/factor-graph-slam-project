@@ -60,11 +60,11 @@ def propagate_wheel_pos(wp_prev, wth, wdelta):
 
 
 # Load bag file and encoder data
-b = bagreader('./slam_data_1.bag')
+b = bagreader('./code/slam_data_1.bag')
 encoder_csv = b.message_by_topic('/mobile_base_0/encoders')
 encoder_data = pd.read_csv(encoder_csv)
 
-dN = 100
+dN = 20
 
 encoder_data = encoder_data.iloc[::dN]
 
@@ -132,7 +132,8 @@ for i in tqdm(range(1, n)):
     if i % 5 == 0:
         viz.update(robotState[i], wheelRelativeTheta[i])
 
-# np.save('position_odometry_data.npy', robotState)
+odometry_data = np.hstack([encoder_data['Time'][0:n, None], robotState])
+np.save('./code/position_odometry_data.npy', odometry_data)
 
 fig2, axs = plt.subplots(1, 2)
 axs[0].plot(robotState[:, 0], robotState[:, 2], label='robot position', c='k')
