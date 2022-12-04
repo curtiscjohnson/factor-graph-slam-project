@@ -456,13 +456,14 @@ class graph_slam_known:
 
 
     def step(self, odometry, measurements):
-        curr_pose = self.motion_model(odometry, self.prev_pose)
+        curr_pose, odometryNoise = self.motion_model(odometry, self.prev_pose)
+        odometryNoise = gtsam.noiseModel.Gaussian.Covariance(odometryNoise)
         relativePose = gtsam.Pose2(curr_pose-self.prev_pose)
         self.prev_pose = curr_pose
 
         # add odometry factor
-        self.factor_graph.add(gtsam.BetweenFactorPose2(self.i-1, self.i, relativePose, self.ODOMETRY_NOISE))
-        self.total_graph.add(gtsam.BetweenFactorPose2(self.i-1, self.i, relativePose, self.ODOMETRY_NOISE))
+        self.factor_graph.add(gtsam.BetweenFactorPose2(self.i-1, self.i, relativePose, odometryNoise))
+        self.total_graph.add(gtsam.BetweenFactorPose2(self.i-1, self.i, relativePose, odometryNoise))
 
         predictedPose = Pose2(curr_pose[0], curr_pose[1],curr_pose[2])
         # self.realRobot = predictedPose
@@ -558,4 +559,4 @@ class graph_slam_known:
 
         Sigma_odometry = R @ M @ R.T
             
-        return np.array([x, y, theta_end])
+        return np.array([x, y, theta_end]), Sigma_odometry
