@@ -70,7 +70,7 @@ b = bagreader(relative_file_path + 'slam_data_1.bag')
 encoder_csv = b.message_by_topic('/mobile_base_0/encoders')
 encoder_data = pd.read_csv(encoder_csv)
 
-dN = 20
+dN = 5
 
 encoder_data = encoder_data.iloc[::dN]
 
@@ -81,7 +81,7 @@ encoder_data['segway.segway_2'] = encoder_data['segway.segway_2'] - encoder_data
 encoder_data['segway.segway_3'] = encoder_data['segway.segway_3'] - encoder_data['segway.segway_3'][0]
 
 n = encoder_data['Time'].shape[0]
-n = int(n)
+n = int(n / 1)
 print(f"n = {n}")
 
 
@@ -119,6 +119,8 @@ wheelTheta[0] = wheelRelativeTheta[0] + robotState[0, 3]
 fig, ax = plt.subplots()
 viz = RobotViz(ax)
 
+r = robotState[0]
+
 for i in tqdm(range(1, n)):
     wheelTheta[i] = wrap_angle(wheelRelativeTheta[i] + robotState[i - 1, 3])
     wphat = propagate_wheel_pos(wheelPos[i - 1], wheelTheta[i], wheelDelta[i])
@@ -135,7 +137,7 @@ for i in tqdm(range(1, n)):
     wheelPos[i] = robot_state_to_wheel_pos(robotState[i])
 
     # Animate every x steps
-    if i % 5 == 0:
+    if i % 10 == 0:
         viz.update(robotState[i], wheelRelativeTheta[i])
 
 odometry_data = np.hstack([encoder_data['Time'][0:n, None], robotState])
@@ -145,7 +147,7 @@ np.save(relative_file_path + 'position_odometry_data.npy', odometry_data)
 delta_data = np.zeros_like(odometry_data)
 for i in range(1, n):
     delta_data[i, 0] = odometry_data[i, 0]
-    delta_data[i, 1:4] = odometry_data[i, 1:4] - odometry_data[i - 1, 1:4]
+    delta_data[i, 1:5] = odometry_data[i, 1:5] - odometry_data[i - 1, 1:5]
 
 np.save(relative_file_path + 'delta_odometry_data.npy', delta_data)
 

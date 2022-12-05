@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+np.set_printoptions(linewidth=256)
 
 
 class DataLoader:
@@ -66,7 +67,7 @@ class DataLoader:
                 self.j += 1
             else:
                 if t_odometry < t_measurement:
-                    odometry = self.odata[self.i][[1, 3, 4]]
+                    odometry = self.odata[self.i, [1, 3, 4]]
                     self.i += 1
                 else:
                     measurement = self.mdata[self.j][1]
@@ -109,12 +110,12 @@ class DataLoader:
 
 class EKFFilter:
     def __init__(self):
-        self.Q = np.diag([1, 0.1])
+        self.Q = np.diag([0.1, 15 * np.pi / 180])
         # basic measurement uncertainty in terms of d, phi, delta_theta, which will be scaled
         # d is distance rolled, probably very accurate in most instances
         # phi is angle of motion relative to robot frame
         # delta theta is the amount of rotation of the robot
-        self.alphas = np.array([0.01, 1 * np.pi / 180, 1 * np.pi / 180])
+        self.alphas = np.array([0.01, 0.1 * np.pi / 180, 0.1 * np.pi / 180])
         self.mu = np.array([0, 0, 0], dtype=float)
         self.n = 3  # size of state
         self.m = 0  # number of measurements
@@ -133,17 +134,19 @@ class EKFFilter:
         delta_z = delta[1]
         delta_th = delta[2]
 
-        self.mu[0:3] = np.array([r_x + delta_x, r_z + delta_z, r_th + delta_th])
+        # print(delta_th)
 
         # convert to [d phi delta_th] for uncertainty propagation
         d = np.sqrt(delta_x**2 + delta_z**2)
         phi = np.arctan2(delta_z, delta_x) - r_th
 
+        self.mu[0:3] = np.array([r_x + d * np.cos(phi + r_th), r_z + d * np.sin(phi + r_th), r_th + delta_th])
+
         R = np.array([[self.alphas[0] * np.abs(d), 0, 0],
-                      [0, self.alphas[1] * np.abs(d), 0],
+                      [0, self.alphas[1] * np.abs(phi) * np.abs(d), 0],
                       [0, 0, self.alphas[2] * np.abs(delta_th)]])
 
-        A = np.zeros((self.n, self.n))
+        A = np.eye(self.n)
         A[0:3, 0:3] = np.array([[1, 0, -d * np.sin(r_th + phi)],
                                [0, 1, d * np.cos(r_th + phi)],
                                [0, 0, 1]])
@@ -159,15 +162,94 @@ class EKFFilter:
 
         self.path = np.vstack([self.path, self.mu[0:3]])
     
-    def correct(self, z):
-        m = len(z)
+    def correct(self, correctionList):
+        m = len(correctionList)
         if m == 0:
             return
 
-    def augment(self, z):
-        m = len(z)
+        H = np.zeros((m * 2, self.n))
+        Q = np.zeros((2 * m, 2 * m))
+        zhat = np.zeros((m * 2,))
+        z = np.zeros((m * 2,))
+
+        IDs = []
+
+        for i, measurement in enumerate(correctionList):
+            ID = measurement[0]
+            IDs.append(ID)
+            j = self.landmark_dictionary[ID]
+            r = measurement[1]
+            b = -measurement[2]
+            z[2 * i:2 * i + 2] = np.array([r, b])
+
+            mu_landmark = self.mu[3 + 2 * j:3 + 2 * j + 2]
+            dx = mu_landmark[0] - self.mu[0]
+            dz = mu_landmark[1] - self.mu[1]
+
+            q = dx**2 + dz**2
+
+            zhat[2 * i:2 * i + 2] = np.array([np.sqrt(q),
+                                              np.arctan2(dz, dx) + self.mu[2]])
+            H[2 * i:2 * i + 2, 0:3] = np.array([[-dx / np.sqrt(q), -dz / np.sqrt(q), 0],
+                                                [dz / q, -dx / q, -1]])
+            H[2 * i:2 * i + 2, 3 + 2 * j:3 + 2 * j + 2] = np.array([[dx / np.sqrt(q), dz / np.sqrt(q)],
+                                                                    [-dz, dx]])
+
+            Q[2 * i:2 * i + 2, 2 * i:2 * i + 2] = self.Q
+
+        S = H @ self.cov @ H.T + Q
+        K = self.cov @ H.T @ np.linalg.inv(S)
+
+        self.mu = self.mu + K @ (z - zhat)
+        self.cov = self.cov - K @ H @ self.cov
+
+        print("Updated with measurements: ", IDs)
+
+    def augment(self, augmentList):
+        m = len(augmentList)
         if m == 0:
             return
+
+        for measurement in augmentList:
+            ID = measurement[0]
+            r = measurement[1]
+            b = -measurement[2]
+
+            j = len(self.landmark_dictionary.keys())
+            print(f"Adding landmark {ID} as state {j}")
+            self.landmark_dictionary[ID] = j
+
+            l_mu = np.array([self.mu[0] + np.cos(self.mu[2] + b) * r,
+                             self.mu[1] + np.sin(self.mu[2] + b) * r])
+
+            G_r = np.array([[1, 0, -r * np.sin(self.mu[2] + b)],
+                            [0, 1, r * np.cos(self.mu[2] + b)]])
+
+            G_l = np.array([[np.cos(self.mu[2] + b), -r * np.sin(self.mu[2] + b)],
+                            [np.sin(self.mu[2] + b), r * np.cos(self.mu[2] + b)]])
+
+            S_rr = self.cov[0:3, 0:3]
+            S_ll = G_r @ S_rr @ G_r.T + G_l @ self.Q @ G_l.T
+            S_lr = G_r @ S_rr
+            S_rl = S_lr.T
+
+            if self.n == 3:  # first landmark
+                self.cov = np.block([[S_rr, S_rl],
+                                     [S_lr, S_ll]])
+
+            else:
+                S_LL = self.cov[3:None, 3:None]
+                S_rL = self.cov[0:3, 3:None]
+                S_Lr = S_rL.T
+                S_lL = G_r @ S_rL
+                S_Ll = S_lL.T
+                self.cov = np.block([[S_rr, S_rL, S_rl],
+                                     [S_Lr, S_LL, S_Ll],
+                                     [S_lr, S_lL, S_ll]])
+
+            self.mu = np.hstack([self.mu, l_mu])
+            self.n += 2
+            self.m += 1
 
     def update(self, u):
         odometry = u[0]
@@ -193,22 +275,49 @@ class HWVizualization:
     def __init__(self):
         self.fig, self.ax = plt.subplots()
         self.path, = self.ax.plot([0, 1], [0, 1], c='k', ls='--')
-        self.robotCov, = self.ax.plot([0, 1,], [0, 1], c='r', ls='--')
+        self.robotCov, = self.ax.plot([0, 1,], [0, 1], c='r')
         self.landmarkCovs = []
         
         theta = np.linspace(0, 2 * np.pi, 20)
         self.circle = np.array([[np.cos(th), np.sin(th)] for th in theta])
 
+        self.robotPoints = np.array([[0.5, 0.5],
+                                     [-0.5, 0.5],
+                                     [-0.5, -0.5],
+                                     [0.5, -0.5],
+                                     [0.5, 0.5],
+                                     [0.85, 0],
+                                     [0.5, -0.5]]) * 1.0
+
+        self.robotPlot, = self.ax.plot(self.robotPoints[:, 0], self.robotPoints[:, 1], c='k')
+
         self.ax.axis('square')
 
         plt.pause(0.1)
     
-    def update(self, path, cov):
-        self.path.set_data(path[:, 0], path[:, 1])
-        covPoints = self.get_ellipse(path[-1, [0, 1]], cov)
+    def update(self, slam: EKFFilter):
+        self.path.set_data(slam.path[:, 0], slam.path[:, 1])
+        covPoints = self.get_ellipse(slam.mu[0:2], slam.cov[0:2, 0:2])
         self.robotCov.set_data(covPoints[:, 0], covPoints[:, 1])
-        xmin, xmax = np.min(path[:, 0]), np.max(path[:, 0])
-        ymin, ymax = np.min(path[:, 1]), np.max(path[:, 1])
+        xmin, xmax = np.min(slam.path[:, 0]), np.max(slam.path[:, 0])
+        ymin, ymax = np.min(slam.path[:, 1]), np.max(slam.path[:, 1])
+
+        for i in range(slam.m):
+            covPoints = self.get_ellipse(slam.mu[3+2*i:3+2*i+2],
+                                         slam.cov[3+2*i:3+2*i+2, 3+2*i:3+2*i+2])
+            if len(self.landmarkCovs) < i + 1:
+                cov, = self.ax.plot(covPoints[:, 0], covPoints[:, 1], c='m')
+                self.landmarkCovs.append(cov)
+                self.ax.plot([slam.mu[0], slam.mu[3+2*i]], [slam.mu[1], slam.mu[3+2*i+1]], c='y')
+            else:
+                self.landmarkCovs[i].set_data(covPoints[:, 0], covPoints[:, 1])
+
+        th = slam.mu[2]
+        p = self.robotPoints @ np.array([[np.cos(th), -np.sin(th)],
+                                         [np.sin(th), np.cos(th)]]) + slam.mu[0:2]
+
+        self.robotPlot.set_data(p[:, 0], p[:, 1])
+
         self.ax.set_xlim([xmin - 10, xmax + 10])
         self.ax.set_ylim([ymin - 10, ymax + 10])
         plt.pause(0.00001)
@@ -231,12 +340,16 @@ class HWVizualization:
 
 
 if __name__ == '__main__':
+
+    # x = np.load('delta_odometry_data.npy')
+    # print(x)
+
     loader = DataLoader()
     slammer = EKFFilter()
     viz = HWVizualization()
     for x in loader:
         slammer.update(x)
-        viz.update(slammer.path, slammer.cov)
+        viz.update(slammer)
 
 
 
