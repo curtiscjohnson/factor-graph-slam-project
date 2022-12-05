@@ -25,8 +25,8 @@ class RobotViz:
 
     @staticmethod
     def get_box_points(r):
-        p = r[[0, 2]]
-        th = r[3]
+        p = r[0:2]
+        th = -r[2]
         R = rot(th)
         points = np.array([[0.495, -0.4],
                            [0.495, 0.4],
@@ -38,8 +38,8 @@ class RobotViz:
 
     @staticmethod
     def get_wheel_points(r=np.zeros((4,)), wth=np.zeros((4,))):
-        p = r[[0, 2]]
-        th = r[3]
+        p = r[0:2]
+        th = -r[2]
         wheelPointList = []
 
         wheelShape = np.array([[-0.15, 0],
@@ -75,7 +75,7 @@ class RobotViz:
         wheelPoints = self.get_wheel_points(r, wth)
         self.wheels.set_segments(wheelPoints)
         self.xs.append(r[0])
-        self.zs.append(r[2])
+        self.zs.append(r[1])
         self.path.set_data(self.xs, self.zs)
         xmin, xmax, zmin, zmax = np.min(self.xs), np.max(self.xs), np.min(self.zs), np.max(self.zs)
         self.ax.set_xlim([xmin - 3, xmax + 3])

@@ -4,7 +4,7 @@ import numpy as np
 from scipy.optimize import least_squares
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-from helpers import rot, wrap_angle
+from helpers import rot, wrap_angle, compose
 from robotvizualization import RobotViz
 
 # Use this one for VS Code
@@ -35,18 +35,19 @@ r0 = np.array([0.47, -0.495])
 r1 = np.array([0.47, 0.495])
 r2 = np.array([-0.47, -0.495])
 r3 = np.array([-0.47, 0.495])
-rs = np.vstack([r0, r1, r2, r3, r0])
+wpos = np.vstack([r0, r1, r2, r3])
+
+
+
 
 
 # Kinematics Equations
 def robot_state_to_wheel_pos(r: np.ndarray):
-    p = r[[0, 2]]
-    thr = r[3]
+    p = r[0:2]
+    thr = r[2]
     R = rot(thr)
-    wpos = np.zeros((4, 2))
-    for i in range(4):
-        wpos[i] = rs[i] @ R.T + p
-    return wpos
+    w = wpos @ R.T + p
+    return w
 
 
 def least_squares_error(r, *args):
@@ -56,12 +57,13 @@ def least_squares_error(r, *args):
     return error
 
 
-def propagate_wheel_pos(wp_prev, wth, wdelta):
+def propagate_wheel_pos(wth, wdelta):
     wphat = np.zeros((4, 2))
     for i, th in enumerate(wth):
         th = wth[i]
-        v = np.array([np.cos(th), -np.sin(th)])
-        wphat[i] = wp_prev[i] + v * wdelta[i]
+        v = np.array([np.cos(th), -np.sin(th)])  # -sin is because wheel relative angle is measured along the y-axis,
+        # which is pointing down
+        wphat[i] = wpos[i] + v * wdelta[i]
     return wphat
 
 
@@ -105,58 +107,35 @@ for i in range(1, n):
 
 # Now the fun part.
 # Robot state represents the robot's position as [x y theta]
-robotState = np.zeros((n, 4))
-robotState[0] = np.array([0, 0, 0, 0])  # [x y z theta]
+relativePose = np.zeros((n, 3))
 
 # wheelPos holds the position of each wheel in the world frame. WheelTheta holds the orientation
 # of each wheel in the world frame
-wheelPos = np.zeros((n, 4, 2))
-wheelTheta = np.zeros((n, 4))
-
-wheelPos[0] = robot_state_to_wheel_pos(robotState[0])
-wheelTheta[0] = wheelRelativeTheta[0] + robotState[0, 3]
 
 fig, ax = plt.subplots()
 viz = RobotViz(ax)
 
-r = robotState[0]
+r = np.array([0, 0, 0])
 
 for i in tqdm(range(1, n)):
-    wheelTheta[i] = wrap_angle(wheelRelativeTheta[i] + robotState[i - 1, 3])
-    wphat = propagate_wheel_pos(wheelPos[i - 1], wheelTheta[i], wheelDelta[i])
+
+    wphat = propagate_wheel_pos(wheelRelativeTheta[i], wheelDelta[i])
 
     # Least Squares Error Solution
-    sol = least_squares(least_squares_error, x0=robotState[i - 1], args=(wphat,))
-    robotState[i] = sol.x
-    robotState[i, 1] = 0
+    sol = least_squares(least_squares_error, x0=np.hstack([np.mean(wphat, axis=0), 0]), args=(wphat,))
+    relativePose[i] = sol.x
 
     # Wrap angles
-    robotState[i, 3] = wrap_angle(robotState[i, 3])
+    relativePose[i, 2] = wrap_angle(relativePose[i, 2])
 
-    # Set wheel position
-    wheelPos[i] = robot_state_to_wheel_pos(robotState[i])
+    r = compose(r, relativePose[i])
 
     # Animate every x steps
     if i % 10 == 0:
-        viz.update(robotState[i], wheelRelativeTheta[i])
+        # r = np.array([0, 0, np.pi / 4])
+        viz.update(r, wheelRelativeTheta[i])
 
-odometry_data = np.hstack([encoder_data['Time'][0:n, None], robotState])
+odometry_data = np.hstack([np.asarray(encoder_data['Time'])[0:n, None], relativePose])
 np.save(relative_file_path + 'position_odometry_data.npy', odometry_data)
-
-# Get odometry as delta's
-delta_data = np.zeros_like(odometry_data)
-for i in range(1, n):
-    delta_data[i, 0] = odometry_data[i, 0]
-    delta_data[i, 1:5] = odometry_data[i, 1:5] - odometry_data[i - 1, 1:5]
-
-np.save(relative_file_path + 'delta_odometry_data.npy', delta_data)
-
-fig2, axs = plt.subplots(1, 2)
-axs[0].plot(robotState[:, 0], robotState[:, 2], label='robot position', c='k')
-axs[1].plot(robotState[:, 3], label='robot base theta')
-axs[0].axis('equal')
-axs[0].legend()
-axs[1].legend()
-
 
 plt.show()
