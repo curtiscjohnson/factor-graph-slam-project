@@ -7,6 +7,12 @@ from tqdm import tqdm
 from helpers import rot, wrap_angle
 from robotvizualization import RobotViz
 
+# Use this one for VS Code
+# relative_file_path = './code/'
+
+# Ignore this, on John's computer this is the path to data
+relative_file_path = ''
+
 
 # Robot physical parameters
 radPerTick = 4 * np.pi / 180
@@ -60,7 +66,7 @@ def propagate_wheel_pos(wp_prev, wth, wdelta):
 
 
 # Load bag file and encoder data
-b = bagreader('./code/slam_data_1.bag')
+b = bagreader(relative_file_path + 'slam_data_1.bag')
 encoder_csv = b.message_by_topic('/mobile_base_0/encoders')
 encoder_data = pd.read_csv(encoder_csv)
 
@@ -133,7 +139,15 @@ for i in tqdm(range(1, n)):
         viz.update(robotState[i], wheelRelativeTheta[i])
 
 odometry_data = np.hstack([encoder_data['Time'][0:n, None], robotState])
-np.save('./code/position_odometry_data.npy', odometry_data)
+np.save(relative_file_path + 'position_odometry_data.npy', odometry_data)
+
+# Get odometry as delta's
+delta_data = np.zeros_like(odometry_data)
+for i in range(1, n):
+    delta_data[i, 0] = odometry_data[i, 0]
+    delta_data[i, 1:4] = odometry_data[i, 1:4] - odometry_data[i - 1, 1:4]
+
+np.save(relative_file_path + 'delta_odometry_data.npy', delta_data)
 
 fig2, axs = plt.subplots(1, 2)
 axs[0].plot(robotState[:, 0], robotState[:, 2], label='robot position', c='k')
