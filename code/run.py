@@ -11,7 +11,7 @@ def run():
     numSteps = 200
     # System Noise parameters
     alphas = np.array([0.05, 0.001, 0.05, 0.01])**2 # These have to do with the error in our motion controls
-    betas = np.array([1, 1*np.pi/180]) # Error in observations
+    betas = np.array([10, 10*np.pi/180]) # Error in observations
     soccer_bot = simulation(numSteps=numSteps,alphas=alphas,betas=betas)
 
     mu = soccer_bot.get_initialStateMean()
@@ -21,8 +21,7 @@ def run():
     graph_alg = graph_slam_known(mu, prior_sigmas=np.array([0,0,0]),
                                             odo_sigmas=np.array([10, 10, 0.1]), 
                                             loose_sigma=100, 
-                                            meas_sigmas=np.array([10, .5]),
-                                            minK=50,
+                                            minK=20,
                                             incK=0,
                                             alphas=alphas,
                                             betas=betas)

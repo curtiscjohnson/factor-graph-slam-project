@@ -410,18 +410,22 @@ class graph_slam_known:
                 prior_sigmas=np.array([0, 0, 0]), 
                 odo_sigmas=np.array([10, 10, 0.2]), 
                 loose_sigma=10, 
-                meas_sigmas=np.array([100, (10*np.pi/180)**2]),
                 minK=50,
                 incK=10,
                 alphas=np.zeros((4,)),
-                betas=np.zeros((3,))):
+                betas=np.array([100, (10*np.pi/180)**2])):
 
         # Set up Noise Parameters
         NM = gtsam.noiseModel
         PRIOR_NOISE = NM.Diagonal.Sigmas(prior_sigmas)
+
+
+
+
+
         self.ODOMETRY_NOISE = NM.Diagonal.Sigmas(odo_sigmas)
         self.looseNoise = NM.Isotropic.Sigma(2, loose_sigma)
-        self.MEASUREMENT_NOISE = NM.Diagonal.Sigmas(meas_sigmas)
+        self.MEASUREMENT_NOISE = NM.Diagonal.Sigmas(betas)
         self.cov = np.array([[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0]])
         self.alphas = alphas
         self.betas = betas
@@ -459,8 +463,18 @@ class graph_slam_known:
 
 
     def step(self, odometry, measurements):
-        curr_pose, odometryNoise = self.motion_model(odometry, self.prev_pose)
-        odometryNoise = gtsam.noiseModel.Gaussian.Covariance(odometryNoise)
+        curr_pose, odometryNoise_ = self.motion_model(odometry, self.prev_pose)
+        sqrMag = np.abs(odometry)**2
+        noisyMotion = np.zeros((3,1))
+        alphas = self.alphas
+        noisyMotion[0] = (alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1])#np.random.normal(odometry[0], np.sqrt(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1]))
+        noisyMotion[1] = (alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))#np.random.normal(odometry[1], np.sqrt(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2])))
+        noisyMotion[2] = (alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1])#np.random.normal(odometry[2], np.sqrt(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1]))
+        odometryNoise = gtsam.noiseModel.Diagonal.Sigmas(noisyMotion)
+
+        
+
+        # odometryNoise = gtsam.noiseModel.Gaussian.Covariance(helpers.block_diag(noisyMotion))
         relativePose = gtsam.Pose2(curr_pose-self.prev_pose)
         self.prev_pose = curr_pose
 
