@@ -178,6 +178,7 @@ def generate(initialStateMean, numSteps, alphas, beta, deltaT, maxObs=2, landmar
             print("Loaded saved data")
             return data
         except:
+            print("creating new data")
             pass
 
     observationDim = 3

@@ -111,7 +111,7 @@ def Pose2SLAM_ISAM2_example():
     # update calls are required to perform the relinearization.
     parameters = gtsam.ISAM2Params()
     parameters.setRelinearizeThreshold(0.1)
-    parameters.relinearizeSkip = 1
+    # parameters.relinearizeSkip = 1
     isam = gtsam.ISAM2(parameters)
 
     # Create the ground truth odometry measurements of the robot during the trajectory.
@@ -144,11 +144,9 @@ def Pose2SLAM_ISAM2_example():
         # Add a binary factor in between two existing states if loop closure is detected.
         # Otherwise, add a binary factor between a newly observed state and the previous state.
         if loop:
-            graph.push_back(gtsam.BetweenFactorPose2(i + 1, loop, 
-                gtsam.Pose2(noisy_odom_x, noisy_odom_y, noisy_odom_theta), ODOMETRY_NOISE))
+            graph.push_back(gtsam.BetweenFactorPose2(i + 1, loop, gtsam.Pose2(noisy_odom_x, noisy_odom_y, noisy_odom_theta), ODOMETRY_NOISE))
         else:
-            graph.push_back(gtsam.BetweenFactorPose2(i + 1, i + 2, 
-                gtsam.Pose2(noisy_odom_x, noisy_odom_y, noisy_odom_theta), ODOMETRY_NOISE))
+            graph.push_back(gtsam.BetweenFactorPose2(i + 1, i + 2, gtsam.Pose2(noisy_odom_x, noisy_odom_y, noisy_odom_theta), ODOMETRY_NOISE))
 
             # Compute and insert the initialization estimate for the current pose using the noisy odometry measurement.
             computed_estimate = current_estimate.atPose2(i + 1).compose(gtsam.Pose2(noisy_odom_x,
