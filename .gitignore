@@ -1,7 +1,7 @@
 # ignore ALL files in ANY directory named temp or data
 temp/
 data/
-
+__pycache__/
 
 # All files withe .file extention *.file
 *.gif
