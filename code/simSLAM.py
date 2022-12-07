@@ -318,8 +318,8 @@ class ekf_slam:
             #                 [0,1,dist*np.cos(bearing+theta), np.cos(bearing+theta), dist*np.cos(bearing+theta)]]) 
             Gz = np.asarray([[ np.cos(bearing+theta), -dist*np.sin(bearing+theta)],
                             [ np.sin(bearing+theta), dist*np.cos(bearing+theta)]]) 
-            Gr = np.asarray([[1,0,-dist*np.sin(bearing+theta)],
-                            [0,1,dist*np.cos(bearing+theta)]]) 
+            Gr = np.asarray([[1, 0,-dist*np.sin(bearing+theta)],
+                            [0, 1,dist*np.cos(bearing+theta)]])
             dim = len(Sigma)
             Sigma_LL = Sigma[3:dim, 3:dim]
             Sigma_rL = Sigma[:3, 3:dim]
