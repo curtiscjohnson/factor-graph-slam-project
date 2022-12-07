@@ -223,6 +223,7 @@ def generate(initialStateMean, numSteps, alphas, beta, deltaT, maxObs=2, landmar
         data[n, 6:9] = noiseFreeRobot.copy()
         for i in range(len(markerIds)):
             obs = observation(realRobot, markerIds[i])
+            # print(f"noise free observation of L{i} at : {obs}")
             noisyObs = obs + np.random.multivariate_normal(np.zeros(observationDim), Q)
             start = 9+5*i
             data[n, start:start+3] = obs

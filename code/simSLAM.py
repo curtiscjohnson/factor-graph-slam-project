@@ -411,7 +411,7 @@ class graph_slam_known:
                 incK,
                 alphas,
                 betas,
-                loose_sigma=10,
+                loose_sigma=5,
                 prior_sigmas=np.array([0, 0, 0])):
 
         # Set up Noise Parameters
@@ -423,7 +423,7 @@ class graph_slam_known:
 
 
         self.looseNoise = NM.Isotropic.Sigma(2, loose_sigma)
-        self.MEASUREMENT_NOISE = NM.Diagonal.Sigmas([betas[0]**2,betas[1]])
+        self.MEASUREMENT_NOISE = NM.Diagonal.Sigmas([betas[0]**2+1,betas[1]+.001])
         self.cov = np.array([[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0]])
         self.robot_cov = np.zeros([3,3])
         self.alphas = alphas
@@ -465,11 +465,11 @@ class graph_slam_known:
         sqrMag = np.abs(odometry)**2
         noisyMotion = np.zeros((3,1))
         alphas = self.alphas
-        noisyMotion[0] = 10*(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1])#np.random.normal(odometry[0], np.sqrt(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1]))
-        noisyMotion[1] = 10*(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))#np.random.normal(odometry[1], np.sqrt(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2])))
-        noisyMotion[2] = 10*(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1])#np.random.normal(odometry[2], np.sqrt(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1]))
+        noisyMotion[0] = 10*(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1])+1#np.random.normal(odometry[0], np.sqrt(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1]))
+        noisyMotion[1] = 10*(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))+1#np.random.normal(odometry[1], np.sqrt(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2])))
+        noisyMotion[2] = 10*(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1])+1#np.random.normal(odometry[2], np.sqrt(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1]))
         odometryNoise = gtsam.noiseModel.Diagonal.Sigmas(noisyMotion)
-        # odometryNoise = gtsam.noiseModel.Isotropic(odometryNoise)
+        # odometryNoise = gtsam.noiseModel.Gaussian.Covariance(odometryNoise)
 
         
 
@@ -496,8 +496,8 @@ class graph_slam_known:
                 self.total_graph.add(gtsam.BearingRangeFactor2D(self.i, landmark_key, gtsam.Rot2(bearing),  dist, self.MEASUREMENT_NOISE))
                 
                 if landmark_key not in self.initial_estimatedLandmarks:
-                    minimized_angle = helpers.minimizedAngle(bearing+predictedPose.theta())
-                    estimated_L_xy=[predictedPose.x()+dist*np.cos(minimized_angle),predictedPose.y()+dist*np.sin(minimized_angle)]
+                    # minimized_angle = helpers.minimizedAngle(bearing+predictedPose.theta())
+                    estimated_L_xy=[predictedPose.x()+dist*np.cos(bearing+predictedPose.theta()),predictedPose.y()+dist*np.sin(bearing+predictedPose.theta())]
                     self.initial_estimate.insert(landmark_key, estimated_L_xy)
                     self.overall_estimate.insert(landmark_key, estimated_L_xy)
                     print(f"Adding landmark L{j} at : {estimated_L_xy}")
