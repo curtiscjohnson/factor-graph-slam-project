@@ -10,8 +10,10 @@ def run():
 
     numSteps = 200
     # System Noise parameters
-    alphas = np.array([0.05, 0.001, 0.05, 0.01])**2 # These have to do with the error in our motion controls
-    betas = np.array([10, 10*np.pi/180]) # Error in observations
+    # alphas = np.array([0.05, 0.001, 0.05, 0.01])**2 # These have to do with the error in our motion controls
+    # betas = np.array([10, 10*np.pi/180]) # Error in observations
+    alphas = np.array([0.001, 0.001, 0.001, 0.001])**2 # These have to do with the error in our motion controls
+    betas = np.array([0.001, 0.001]) # Error in observations
     soccer_bot = simulation(numSteps=numSteps,alphas=alphas,betas=betas)
 
     mu = soccer_bot.get_initialStateMean()
@@ -19,10 +21,9 @@ def run():
     ekf_SLAM_alg = ekf_slam(mu,cov,alphas=alphas,betas=betas)
 
     graph_alg = graph_slam_known(mu, prior_sigmas=np.array([0,0,0]),
-                                            odo_sigmas=np.array([10, 10, 0.1]), 
-                                            loose_sigma=100, 
+                                            loose_sigma=1, 
                                             minK=20,
-                                            incK=0,
+                                            incK=5,
                                             alphas=alphas,
                                             betas=betas)
 

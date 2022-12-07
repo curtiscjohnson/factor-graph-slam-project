@@ -407,13 +407,12 @@ class ekf_slam:
 
 class graph_slam_known:
     def __init__(self, initialMean, 
-                prior_sigmas=np.array([0, 0, 0]), 
-                odo_sigmas=np.array([10, 10, 0.2]), 
-                loose_sigma=10, 
-                minK=50,
-                incK=10,
-                alphas=np.zeros((4,)),
-                betas=np.array([100, (10*np.pi/180)**2])):
+                minK,
+                incK,
+                alphas,
+                betas,
+                loose_sigma=10,
+                prior_sigmas=np.array([0, 0, 0])):
 
         # Set up Noise Parameters
         NM = gtsam.noiseModel
@@ -423,12 +422,11 @@ class graph_slam_known:
 
 
 
-        self.ODOMETRY_NOISE = NM.Diagonal.Sigmas(odo_sigmas)
         self.looseNoise = NM.Isotropic.Sigma(2, loose_sigma)
-        self.MEASUREMENT_NOISE = NM.Diagonal.Sigmas(betas)
+        self.MEASUREMENT_NOISE = NM.Diagonal.Sigmas([betas[0]**2,betas[1]])
         self.cov = np.array([[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0]])
+        self.robot_cov = np.zeros([3,3])
         self.alphas = alphas
-        self.betas = betas
 
         # Initialize iSAM
         parameters = gtsam.ISAM2Params()
@@ -459,18 +457,19 @@ class graph_slam_known:
         self.prev_pose = initialMean
         self.initial_estimatedLandmarks = set()       
 
-        self.path = np.array([0, 0]) 
+        self.path = np.array([initialMean[0], initialMean[1]]) 
 
 
     def step(self, odometry, measurements):
-        curr_pose, odometryNoise_ = self.motion_model(odometry, self.prev_pose)
+        curr_pose, odometryNoise = self.motion_model(odometry, self.prev_pose)
         sqrMag = np.abs(odometry)**2
         noisyMotion = np.zeros((3,1))
         alphas = self.alphas
-        noisyMotion[0] = (alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1])#np.random.normal(odometry[0], np.sqrt(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1]))
-        noisyMotion[1] = (alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))#np.random.normal(odometry[1], np.sqrt(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2])))
-        noisyMotion[2] = (alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1])#np.random.normal(odometry[2], np.sqrt(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1]))
+        noisyMotion[0] = 10*(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1])#np.random.normal(odometry[0], np.sqrt(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1]))
+        noisyMotion[1] = 10*(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))#np.random.normal(odometry[1], np.sqrt(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2])))
+        noisyMotion[2] = 10*(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1])#np.random.normal(odometry[2], np.sqrt(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1]))
         odometryNoise = gtsam.noiseModel.Diagonal.Sigmas(noisyMotion)
+        # odometryNoise = gtsam.noiseModel.Isotropic(odometryNoise)
 
         
 
@@ -532,7 +531,7 @@ class graph_slam_known:
             
             # Get the covariance of the robot
             marginals = gtsam.Marginals(self.total_graph, self.overall_estimate)
-            robot_cov = marginals.marginalCovariance(self.i)
+            self.robot_cov = marginals.marginalCovariance(self.i)
             for key in self.initial_estimatedLandmarks:
                 landmark_cov.append(marginals.marginalCovariance(key))
                 mu = np.append(mu,self.overall_estimate.atPoint2(key))
@@ -544,7 +543,7 @@ class graph_slam_known:
 
             for c in landmark_cov:
                 cov = helpers.block_diag(cov,c)
-            cov[:3,:3] = robot_cov
+            cov[:3,:3] = self.robot_cov
 
             poses = gtsam.utilities.allPose2s(current_estimate)
             self.path = np.array([poses.atPose2(key).translation() for key in poses.keys()])
@@ -562,8 +561,6 @@ class graph_slam_known:
         dr1, dt, dr2 = u.flatten()
 
         alphas = self.alphas
-        betas = self.betas
-
         # predicting motion
         theta = theta + dr1
         x = x + dt*np.cos(theta)
@@ -572,14 +569,17 @@ class graph_slam_known:
         theta_end = theta + dr2
         # theta_end = helpers.minimizedAngle(theta_end) 
 
-        M = np.array([[alphas[0]*dr1**2+alphas[1]*dt**2,0                                                   ,0                                       ],
-                [0                                     ,alphas[2]*dt**2 + alphas[3]*(dr1**2+dr2**2) ,0                                       ],
-                [0                                     ,0                                                   ,alphas[0]*dr2**2 + alphas[1]*dt**2]])
+        M = np.array([[alphas[0]*dr1**2+alphas[1]*dt**2,0                                           ,0                                 ],
+                      [0                               ,alphas[2]*dt**2 + alphas[3]*(dr1**2+dr2**2) ,0                                 ],
+                      [0                               ,0                                           ,alphas[0]*dr2**2 + alphas[1]*dt**2]])
         
         R = np.array([[-dt*np.sin(theta), np.cos(theta), 0],
-                    [ dt*np.cos(theta), np.sin(theta), 0],
-                    [1                      ,0       , 1]])
+                      [ dt*np.cos(theta), np.sin(theta), 0],
+                      [1                ,0             , 1]])
+        G = np.array([[1,0,-dt*np.sin(theta)],
+                      [0,1, dt*np.cos(theta)],
+                      [0,0,                1]])
 
-        Sigma_odometry = R @ M @ R.T
+        Sigma_odometry =  R @ M @ R.T #+G @ self.robot_cov @ G.T 
             
         return np.array([x, y, theta_end]), Sigma_odometry
