@@ -462,14 +462,14 @@ class graph_slam_known:
 
     def step(self, odometry, measurements):
         curr_pose, odometryNoise = self.motion_model(odometry, self.prev_pose)
-        sqrMag = np.abs(odometry)**2
-        noisyMotion = np.zeros((3,1))
-        alphas = self.alphas
-        noisyMotion[0] = 10*(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1])+1#np.random.normal(odometry[0], np.sqrt(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1]))
-        noisyMotion[1] = 10*(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))+1#np.random.normal(odometry[1], np.sqrt(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2])))
-        noisyMotion[2] = 10*(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1])+1#np.random.normal(odometry[2], np.sqrt(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1]))
-        odometryNoise = gtsam.noiseModel.Diagonal.Sigmas(noisyMotion)
-        # odometryNoise = gtsam.noiseModel.Gaussian.Covariance(odometryNoise)
+        # sqrMag = np.abs(odometry)**2
+        # noisyMotion = np.zeros((3,1))
+        # alphas = self.alphas
+        # noisyMotion[0] = 10*(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1])+1#np.random.normal(odometry[0], np.sqrt(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1]))
+        # noisyMotion[1] = 10*(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))+1#np.random.normal(odometry[1], np.sqrt(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2])))
+        # noisyMotion[2] = 10*(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1])+1#np.random.normal(odometry[2], np.sqrt(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1]))
+        # odometryNoise = gtsam.noiseModel.Diagonal.Sigmas(noisyMotion)
+        odometryNoise = gtsam.noiseModel.Gaussian.Covariance(odometryNoise)
 
         
 
@@ -580,6 +580,6 @@ class graph_slam_known:
                       [0,1, dt*np.cos(theta)],
                       [0,0,                1]])
 
-        Sigma_odometry =  R @ M @ R.T #+G @ self.robot_cov @ G.T 
+        Sigma_odometry =  R @ M @ R.T +G @ self.robot_cov @ G.T 
             
         return np.array([x, y, theta_end]), Sigma_odometry
