@@ -415,18 +415,25 @@ class graph_slam_known:
                 prior_sigmas=np.array([0, 0, 0])):
 
         # Set up Noise Parameters
+        self.alphas = alphas
+        sqrMag = np.abs(initialMean)**2
+        alphas = self.alphas
+        noisyStart_x = (alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))*np.cos(initialMean[2]) +.01
+        noisyStart_y=  (alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))*np.sin(initialMean[2]) +.01
+        noisyStart_theta= (alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1])*2+.001
+
         NM = gtsam.noiseModel
-        PRIOR_NOISE = NM.Diagonal.Sigmas(prior_sigmas)
+        PRIOR_NOISE = NM.Diagonal.Sigmas([noisyStart_x,noisyStart_y,noisyStart_theta])
 
 
 
 
 
         self.looseNoise = NM.Isotropic.Sigma(2, loose_sigma)
-        self.MEASUREMENT_NOISE = NM.Diagonal.Sigmas([betas[0]**2+1,betas[1]+.001])
+        self.MEASUREMENT_NOISE = NM.Diagonal.Sigmas([betas[0]**2,betas[1]])
         self.cov = np.array([[0.0,0.0,0.0],[0.0,0.0,0.0],[0.0,0.0,0.0]])
         self.robot_cov = np.zeros([3,3])
-        self.alphas = alphas
+        
 
         # Initialize iSAM
         parameters = gtsam.ISAM2Params()
@@ -462,13 +469,6 @@ class graph_slam_known:
 
     def step(self, odometry, measurements):
         curr_pose, odometryNoise = self.motion_model(odometry, self.prev_pose)
-        # sqrMag = np.abs(odometry)**2
-        # noisyMotion = np.zeros((3,1))
-        # alphas = self.alphas
-        # noisyMotion[0] = 10*(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1])+1#np.random.normal(odometry[0], np.sqrt(alphas[0]*sqrMag[0] + alphas[1]*sqrMag[1]))
-        # noisyMotion[1] = 10*(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))+1#np.random.normal(odometry[1], np.sqrt(alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2])))
-        # noisyMotion[2] = 10*(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1])+1#np.random.normal(odometry[2], np.sqrt(alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1]))
-        # odometryNoise = gtsam.noiseModel.Diagonal.Sigmas(noisyMotion)
         odometryNoise = gtsam.noiseModel.Gaussian.Covariance(odometryNoise)
 
         
