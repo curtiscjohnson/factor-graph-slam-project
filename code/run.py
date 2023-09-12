@@ -8,10 +8,10 @@ from matplotlib.pyplot import show
 
 def run():
 
-    numSteps = 200
+    numSteps = 110
     # System Noise parameters
     alphas = np.array([0.05, 0.001, 0.05, 0.01])**2 # These have to do with the error in our motion controls
-    betas = np.array([10, 10*np.pi/180]) # Error in observations
+    betas = np.array([10., 10.*np.pi/180]) # Error in observations
     # alphas = np.array([0.001, 0.001, 0.001, 0.001])**2 # These have to do with the error in our motion controls
     # betas = np.array([0.001, 0.001]) # Error in observations
     # alphas = np.array([0.00, 0.00, 0.00, 0.00])**2 # These have to do with the error in our motion controls
@@ -26,7 +26,8 @@ def run():
                                     minK=20,
                                     incK=5,
                                     alphas=alphas,
-                                    betas=betas)
+                                    betas=betas,
+                                    loose_sigma=15)
 
     #=================================================
     # Parameters: 

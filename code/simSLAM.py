@@ -170,7 +170,7 @@ class simulation:
         helpers.plotRobot(data[t, 3:6], "black", "#00FFFF40")
 
         # draw the path the estimated robot followed
-        plt.plot(np.array([initialStateMean[0], *muHist[:t, 0]]), np.array([initialStateMean[1], *muHist[:t, 1]]), color=estimatedPathColor, label='EKF SLAM Est')
+        plt.plot(np.array([initialStateMean[0], *muHist[:t, 0]]), np.array([initialStateMean[1], *muHist[:t, 1]]), color=estimatedPathColor, label='GTSAM Est')
         plt.plot([mu[0]], [mu[1]], '*', color=estimatedPathColor)
         helpers.plotCov2D(mu[:2], Sigma[:2, :2], color=estimatedPathColor, nSigma=3)
 
@@ -411,19 +411,19 @@ class graph_slam_known:
                 incK,
                 alphas,
                 betas,
-                loose_sigma=5,
-                prior_sigmas=np.array([0, 0, 0])):
+                loose_sigma=15):
 
         # Set up Noise Parameters
         self.alphas = alphas
-        sqrMag = np.abs(initialMean)**2
-        alphas = self.alphas
-        noisyStart_x = (alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))*np.cos(initialMean[2]) +.01
-        noisyStart_y=  (alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))*np.sin(initialMean[2]) +.01
-        noisyStart_theta= (alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1])*2+.001
+        # sqrMag = np.abs(initialMean)**2
+        # alphas = self.alphas
+        # noisyStart_x = (alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))*np.cos(initialMean[2]) +.01
+        # noisyStart_y=  (alphas[2]*sqrMag[1] + alphas[3]*(sqrMag[0]+sqrMag[2]))*np.sin(initialMean[2]) +.01
+        # noisyStart_theta= (alphas[0]*sqrMag[2] + alphas[1]*sqrMag[1])*2+.001
 
         NM = gtsam.noiseModel
-        PRIOR_NOISE = NM.Diagonal.Sigmas([noisyStart_x,noisyStart_y,noisyStart_theta])
+        # PRIOR_NOISE = NM.Diagonal.Sigmas([noisyStart_x,noisyStart_y,noisyStart_theta])
+        PRIOR_NOISE = NM.Diagonal.Sigmas([0.0,0.0,0.0])
 
 
 
@@ -569,9 +569,9 @@ class graph_slam_known:
         theta_end = theta + dr2
         # theta_end = helpers.minimizedAngle(theta_end) 
 
-        M = np.array([[alphas[0]*dr1**2+alphas[1]*dt**2,0                                           ,0                                 ],
-                      [0                               ,alphas[2]*dt**2 + alphas[3]*(dr1**2+dr2**2) ,0                                 ],
-                      [0                               ,0                                           ,alphas[0]*dr2**2 + alphas[1]*dt**2]])
+        M = np.array([[alphas[0]*dr1**2+alphas[1]*dt**2           ,0,0],
+                    [0,alphas[2]*dt**2 + alphas[3]*(dr1**2+dr2**2),0 ],
+                  [0,0,alphas[0]*dr2**2 + alphas[1]*dt**2             ]])
         
         R = np.array([[-dt*np.sin(theta), np.cos(theta), 0],
                       [ dt*np.cos(theta), np.sin(theta), 0],
@@ -580,6 +580,6 @@ class graph_slam_known:
                       [0,1, dt*np.cos(theta)],
                       [0,0,                1]])
 
-        Sigma_odometry =  R @ M @ R.T +G @ self.robot_cov @ G.T 
+        Sigma_odometry =  R @ M @ R.T + G @ self.robot_cov @ G.T 
             
         return np.array([x, y, theta_end]), Sigma_odometry
